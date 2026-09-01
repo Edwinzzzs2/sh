@@ -16,9 +16,9 @@ send_stats() { :; }
 EOF
 sed -n '10597,10766p' "$SCRIPT" >> "$WORKDIR/harness.sh"
 printf '\n' >> "$WORKDIR/harness.sh"
-sed -n '12815,13534p' "$SCRIPT" >> "$WORKDIR/harness.sh"
+sed -n '12934,13653p' "$SCRIPT" >> "$WORKDIR/harness.sh"
 printf '\n' >> "$WORKDIR/harness.sh"
-sed -n '13781,13825p' "$SCRIPT" >> "$WORKDIR/harness.sh"
+sed -n '13900,13944p' "$SCRIPT" >> "$WORKDIR/harness.sh"
 printf '\n' >> "$WORKDIR/harness.sh"
 chmod +x "$WORKDIR/harness.sh"
 
