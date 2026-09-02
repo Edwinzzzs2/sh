@@ -12657,125 +12657,6 @@ openclaw_json_get_bool() {
 		openclaw_print_bot_status_line "微信 (Weixin)" "$wx_status"
 	}
 
-	openclaw_weixin_account_ids() {
-		local state_root="${OPENCLAW_STATE_DIR:-${HOME}/.openclaw}"
-		local index_file="${state_root}/openclaw-weixin/accounts.json"
-
-		[ -f "$index_file" ] || return 0
-		jq -r 'if type == "array" then .[] | select(type == "string" and length > 0) else empty end' "$index_file" 2>/dev/null | sort -u
-	}
-
-	openclaw_weixin_connect_agent() {
-		send_stats "微信扫码绑定智能体"
-
-		if ! command -v openclaw >/dev/null 2>&1; then
-			echo "❌ 未检测到 OpenClaw，请先完成安装。"
-			return 1
-		fi
-
-		if ! command -v jq >/dev/null 2>&1; then
-			install jq
-		fi
-		if ! command -v jq >/dev/null 2>&1; then
-			echo "❌ 缺少 jq，无法安全识别智能体和微信账号。"
-			return 1
-		fi
-
-		local agents_json target_agent
-		agents_json=$(openclaw agents list --json 2>/dev/null) || {
-			echo "❌ 获取 OpenClaw 智能体列表失败。"
-			return 1
-		}
-		if ! printf '%s' "$agents_json" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-			echo "❌ 未找到可绑定的智能体，请先创建工作区。"
-			return 1
-		fi
-
-		echo "可绑定的工作区："
-		printf '%s' "$agents_json" | jq -r '.[] | "- \(.id)\t\(.identityName // .name // "未命名")\t\(.workspace // "-")"'
-		read -e -p "请输入目标智能体 ID（默认 main，输入 0 取消）： " target_agent
-		target_agent=${target_agent:-main}
-		[ "$target_agent" = "0" ] && return 0
-
-		if ! printf '%s' "$agents_json" | jq -e --arg id "$target_agent" '[.[] | select(.id == $id)] | length == 1' >/dev/null 2>&1; then
-			echo "❌ 智能体不存在：$target_agent"
-			return 1
-		fi
-
-		local before_file after_file candidate_ids candidate_count account_id
-		before_file=$(mktemp) || return 1
-		after_file=$(mktemp) || {
-			rm -f "$before_file"
-			return 1
-		}
-
-		# 微信插件的账号索引比登录命令输出稳定，前后做集合差可避免误绑已有账号。
-		openclaw_weixin_account_ids > "$before_file"
-
-		if ! openclaw plugins inspect openclaw-weixin 2>/dev/null | grep -q '^Status: loaded'; then
-			echo "未检测到可用的微信插件，开始安装官方插件..."
-			if ! npx -y @tencent-weixin/openclaw-weixin-cli@latest install; then
-				echo "❌ 微信插件安装失败。"
-				rm -f "$before_file" "$after_file"
-				return 1
-			fi
-		fi
-
-		openclaw_weixin_account_ids > "$after_file"
-		candidate_ids=$(comm -13 "$before_file" "$after_file")
-
-		# 部分版本的安装器会顺带完成扫码；只有账号索引未增加时才单独发起登录。
-		if [ -z "$candidate_ids" ]; then
-			echo "请使用微信扫描终端中的二维码完成登录。"
-			if ! openclaw channels login --channel openclaw-weixin; then
-				echo "❌ 微信扫码登录失败或已取消。"
-				rm -f "$before_file" "$after_file"
-				return 1
-			fi
-			openclaw_weixin_account_ids > "$after_file"
-			candidate_ids=$(comm -13 "$before_file" "$after_file")
-		fi
-
-		candidate_count=$(printf '%s\n' "$candidate_ids" | sed '/^$/d' | wc -l | tr -d ' ')
-		if [ "$candidate_count" = "1" ]; then
-			account_id=$(printf '%s\n' "$candidate_ids" | sed '/^$/d' | head -n 1)
-		else
-			if [ "$candidate_count" = "0" ]; then
-				echo "⚠️ 未自动识别到新增账号，可能重新登录了已有微信。"
-				candidate_ids=$(cat "$after_file")
-			else
-				echo "⚠️ 检测到多个新增微信账号，请明确选择本次要绑定的账号。"
-			fi
-
-			if [ -z "$candidate_ids" ]; then
-				echo "❌ 当前没有可绑定的微信账号。"
-				rm -f "$before_file" "$after_file"
-				return 1
-			fi
-
-			printf '%s\n' "$candidate_ids" | sed '/^$/d' | sed 's/^/- /'
-			read -e -p "请输入要绑定的微信账号 ID（输入 0 取消）： " account_id
-			if [ "$account_id" = "0" ]; then
-				rm -f "$before_file" "$after_file"
-				return 0
-			fi
-			if ! printf '%s\n' "$candidate_ids" | grep -Fqx -- "$account_id"; then
-				echo "❌ 输入的账号不在候选列表中，已停止绑定。"
-				rm -f "$before_file" "$after_file"
-				return 1
-			fi
-		fi
-
-		rm -f "$before_file" "$after_file"
-		echo "正在将微信账号 $account_id 绑定到智能体 $target_agent..."
-		if ! openclaw agents bind --agent "$target_agent" --bind "openclaw-weixin:$account_id" --json; then
-			echo "❌ 扫码已完成，但工作区绑定失败；账号数据已保留，可稍后手动绑定。"
-			return 1
-		fi
-
-		echo "✅ 微信账号 $account_id 已接入工作区 $target_agent。"
-	}
-
 	change_tg_bot_code() {
 		send_stats "机器人对接"
 		while true; do
@@ -12789,7 +12670,7 @@ openclaw_json_get_bool() {
 			echo "2. 飞书 (Lark) 机器人对接"
 			echo "3. WhatsApp 机器人对接"
 			echo "4. QQ 机器人对接"
-			echo "5. 微信扫码并绑定工作区"
+			echo "5. 微信机器人对接"
 			echo "----------------------------------------"
 			echo "0. 返回上一级选单"
 			echo "----------------------------------------"
@@ -12822,7 +12703,7 @@ openclaw_json_get_bool() {
 					break_end
 					;;
 				5)
-					openclaw_weixin_connect_agent
+					npx -y @tencent-weixin/openclaw-weixin-cli@latest install
 					break_end
 					;;
 				0)
