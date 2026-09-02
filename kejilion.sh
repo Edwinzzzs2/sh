@@ -1,5 +1,5 @@
 #!/bin/bash
-sh_v="4.5.2"
+sh_v="4.5.8"
 
 
 gl_hui='\e[37m'
@@ -15,6 +15,29 @@ gl_kjlan='\033[96m'
 canshu="default"
 permission_granted="false"
 ENABLE_STATS="true"
+
+if [ "${1:-}" = "kpanel" ] && [ "${2:-}" = "node" ]; then
+	KJ_LIGHT_NODE_PROTOCOL=1
+fi
+
+kpanel_protocol_active() {
+	[ "${KJ_LIGHT_NODE_PROTOCOL:-}" = "1" ] ||
+	[ "${KJ_SSH_PORT_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_DNS_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_SYSTEM_RESOURCE_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_DISK_MANAGEMENT_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_NETWORK_OPERATIONS_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_ACCOUNT_MANAGEMENT_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_F2B_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_SYSTEM_TUNING_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_BBRV3_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_APP_INTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_WEB_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_WEB_INTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_LDNMP_NONINTERACTIVE:-}" = "1" ] ||
+	[ "${KJ_TEST_NONINTERACTIVE:-}" = "1" ]
+}
 
 
 quanju_canshu() {
@@ -100,17 +123,18 @@ fi
 
 
 
-canshu_v6
-CheckFirstRun_true
-yinsiyuanquan2
+if ! kpanel_protocol_active; then
+	canshu_v6
+	CheckFirstRun_true
+	yinsiyuanquan2
 
-
-sed -i '/^alias k=/d' ~/.bashrc > /dev/null 2>&1
-sed -i '/^alias k=/d' ~/.profile > /dev/null 2>&1
-sed -i '/^alias k=/d' ~/.bash_profile > /dev/null 2>&1
-cp -f ./kejilion.sh ~/kejilion.sh > /dev/null 2>&1
-cp -f ~/kejilion.sh /usr/local/bin/k > /dev/null 2>&1
-ln -sf /usr/local/bin/k /usr/bin/k > /dev/null 2>&1
+	sed -i '/^alias k=/d' ~/.bashrc > /dev/null 2>&1
+	sed -i '/^alias k=/d' ~/.profile > /dev/null 2>&1
+	sed -i '/^alias k=/d' ~/.bash_profile > /dev/null 2>&1
+	cp -f ./kejilion.sh ~/kejilion.sh > /dev/null 2>&1
+	cp -f ~/kejilion.sh /usr/local/bin/k > /dev/null 2>&1
+	ln -sf /usr/local/bin/k /usr/bin/k > /dev/null 2>&1
+fi
 
 
 
@@ -141,7 +165,9 @@ UserLicenseAgreement() {
 	fi
 }
 
-CheckFirstRun_false
+if ! kpanel_protocol_active; then
+	CheckFirstRun_false
+fi
 
 
 
@@ -691,6 +717,7 @@ check_crontab_installed() {
 
 
 install_crontab() {
+	local package_manager
 
 	if [ -f /etc/os-release ]; then
 		. /etc/os-release
@@ -702,9 +729,18 @@ install_crontab() {
 				systemctl start cron
 				;;
 			centos|rhel|almalinux|rocky|fedora)
-				yum install -y cronie
-				systemctl enable crond
-				systemctl start crond
+				if command -v dnf >/dev/null 2>&1; then
+					package_manager=dnf
+				elif command -v yum >/dev/null 2>&1; then
+					package_manager=yum
+				else
+					echo "错误: 未找到 DNF/YUM，无法安装 cronie"
+					return 1
+				fi
+				"$package_manager" install -y cronie || return 1
+				/bin/systemctl enable --now crond.service || return 1
+				command -v crontab >/dev/null 2>&1 || return 1
+				/bin/systemctl is-active --quiet crond.service || return 1
 				;;
 			alpine)
 				apk add --no-cache cronie
@@ -742,6 +778,7 @@ install_crontab() {
 		return
 	fi
 
+	command -v crontab >/dev/null 2>&1 || return 1
 	echo -e "${gl_lv}crontab 已安装且 cron 服务正在运行。${gl_bai}"
 }
 
@@ -818,11 +855,11 @@ docker_ipv6_off() {
 
 save_iptables_rules() {
 	mkdir -p /etc/iptables
-	touch /etc/iptables/rules.v4
-	iptables-save > /etc/iptables/rules.v4
-	check_crontab_installed
-	crontab -l | grep -v 'iptables-restore' | crontab - > /dev/null 2>&1
-	(crontab -l ; echo '@reboot iptables-restore < /etc/iptables/rules.v4') | crontab - > /dev/null 2>&1
+	touch /etc/iptables/rules.v4 || return 1
+	iptables-save > /etc/iptables/rules.v4 || return 1
+	check_crontab_installed || return 1
+	crontab -l | grep -v 'iptables-restore' | crontab - > /dev/null 2>&1 || return 1
+	(crontab -l ; echo '@reboot iptables-restore < /etc/iptables/rules.v4') | crontab - > /dev/null 2>&1 || return 1
 
 }
 
@@ -830,17 +867,17 @@ save_iptables_rules() {
 
 
 iptables_open() {
-	install iptables
-	save_iptables_rules
-	iptables -P INPUT ACCEPT
-	iptables -P FORWARD ACCEPT
-	iptables -P OUTPUT ACCEPT
-	iptables -F
+	install iptables || return 1
+	save_iptables_rules || return 1
+	iptables -P INPUT ACCEPT || return 1
+	iptables -P FORWARD ACCEPT || return 1
+	iptables -P OUTPUT ACCEPT || return 1
+	iptables -F || return 1
 
-	ip6tables -P INPUT ACCEPT
-	ip6tables -P FORWARD ACCEPT
-	ip6tables -P OUTPUT ACCEPT
-	ip6tables -F
+	ip6tables -P INPUT ACCEPT || return 1
+	ip6tables -P FORWARD ACCEPT || return 1
+	ip6tables -P OUTPUT ACCEPT || return 1
+	ip6tables -F || return 1
 
 }
 
@@ -853,7 +890,7 @@ open_port() {
 		return 1
 	fi
 
-	install iptables
+	install iptables || return 1
 
 	for port in "${ports[@]}"; do
 		# 删除已存在的关闭规则
@@ -871,7 +908,7 @@ open_port() {
 		fi
 	done
 
-	save_iptables_rules
+	save_iptables_rules || return 1
 	send_stats "已打开端口"
 }
 
@@ -1540,6 +1577,11 @@ certs_status() {
 		send_stats "域名证书申请成功"
 	else
 		send_stats "域名证书申请失败"
+		if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ] &&
+			! kpanel_web_interactive; then
+			echo "KPANEL_PROGRESS 100 域名证书申请失败，请检查 DNS、80/443 端口和签发限额"
+			return 1
+		fi
 		echo -e "${gl_hong}注意: ${gl_bai}证书申请失败，请检查以下可能原因并重试："
 		echo -e "1. 域名拼写错误 ➠ 请检查域名输入是否正确"
 		echo -e "2. DNS解析问题 ➠ 确认域名已正确解析到本服务器IP"
@@ -1618,6 +1660,10 @@ certs_status() {
 repeat_add_yuming() {
 if [ -e /home/web/conf.d/$yuming.conf ]; then
   send_stats "域名重复使用"
+  if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
+	echo "KPANEL_PROGRESS 100 域名已存在，拒绝覆盖 kejilion.sh 或 KPanel 的现有产物"
+	return 1
+  fi
   web_del "${yuming}" > /dev/null 2>&1
 fi
 
@@ -1625,6 +1671,15 @@ fi
 
 
 add_yuming() {
+	  if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
+		  yuming="${KJ_WEB_DOMAIN:-}"
+		  if [ -z "$yuming" ] || [ ${#yuming} -gt 253 ] ||
+			  ! printf '%s' "$yuming" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+			  echo "KPANEL_PROGRESS 100 KJ_WEB_DOMAIN 不是有效的域名"
+			  return 1
+		  fi
+		  return 0
+	  fi
 	  ip_address
 	  echo -e "先将域名解析到本机IP: ${gl_huang}$ipv4_address  $ipv6_address${gl_bai}"
 	  read -e -p "请输入你的IP或者解析过的域名: " yuming
@@ -1673,6 +1728,40 @@ add_db() {
 	  dbuse=$(grep -oP 'MYSQL_USER:\s*\K.*' /home/web/docker-compose.yml | tr -d '[:space:]')
 	  dbusepasswd=$(grep -oP 'MYSQL_PASSWORD:\s*\K.*' /home/web/docker-compose.yml | tr -d '[:space:]')
 	  docker exec mysql mysql -u root -p"$dbrootpasswd" -e "CREATE DATABASE $dbname; GRANT ALL PRIVILEGES ON $dbname.* TO \"$dbuse\"@\"%\";"
+}
+
+
+ldnmp_web_root_base="/home/web/html"
+
+ldnmp_site_domain_is_safe() {
+	  local site_domain="${1:-}"
+	  case "$site_domain" in
+		  ""|"."|".."|*/*)
+			  echo "无效的站点目录名称: $site_domain" >&2
+			  return 1
+			  ;;
+	  esac
+}
+
+prepare_ldnmp_site_root() {
+	  local site_domain="${1:-}"
+	  ldnmp_site_domain_is_safe "$site_domain" || return 1
+	  command mkdir -p -- "${ldnmp_web_root_base}/${site_domain}" &&
+	  command chmod 0755 -- "$ldnmp_web_root_base" "${ldnmp_web_root_base}/${site_domain}"
+}
+
+normalize_ldnmp_site_permissions() {
+	  local site_domain="${1:-}"
+	  local site_root
+	  ldnmp_site_domain_is_safe "$site_domain" || return 1
+	  site_root="${ldnmp_web_root_base}/${site_domain}"
+	  [ -d "$site_root" ] || {
+		  echo "站点目录不存在: $site_root" >&2
+		  return 1
+	  }
+
+	  find "$site_root" -type d -exec chmod u+rwx,go+rx,go-w {} + &&
+	  find "$site_root" -type f -exec chmod u+rw,go+r,go-w {} +
 }
 
 
@@ -1786,32 +1875,72 @@ web_cache() {
 web_del() {
 
 	send_stats "删除站点数据"
-	yuming_list="${1:-}"
-	if [ -z "$yuming_list" ]; then
-		read -e -p "删除站点数据，请输入你的域名（多个域名用空格隔开）: " yuming_list
-		if [[ -z "$yuming_list" ]]; then
+	local -a yuming_list=()
+	if [ "$#" -gt 0 ]; then
+		yuming_list=("$@")
+	else
+		local yuming_input=""
+		read -e -p "删除站点数据，请输入你的域名（多个域名用空格隔开）: " yuming_input
+		if [[ -z "$yuming_input" ]]; then
 			return
 		fi
+		read -r -a yuming_list <<< "$yuming_input"
 	fi
 
-	for yuming in $yuming_list; do
+	local action_status=0
+	for yuming in "${yuming_list[@]}"; do
+		if [ -z "$yuming" ] || [ "${#yuming}" -gt 253 ] ||
+			! printf '%s' "$yuming" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+			echo "无效域名，拒绝删除: $yuming"
+			action_status=1
+			continue
+		fi
+
 		echo "正在删除域名: $yuming"
-		rm -r /home/web/html/$yuming > /dev/null 2>&1
-		rm /home/web/conf.d/$yuming.conf > /dev/null 2>&1
-		rm /home/web/certs/${yuming}_key.pem > /dev/null 2>&1
-		rm /home/web/certs/${yuming}_cert.pem > /dev/null 2>&1
+		rm -rf -- "/home/web/html/$yuming" > /dev/null 2>&1
+		rm -f -- "/home/web/conf.d/$yuming.conf" > /dev/null 2>&1
+		rm -f -- "/home/web/certs/${yuming}_key.pem" > /dev/null 2>&1
+		rm -f -- "/home/web/certs/${yuming}_cert.pem" > /dev/null 2>&1
 
 		# 将域名转换为数据库名
 		dbname=$(echo "$yuming" | sed -e 's/[^A-Za-z0-9]/_/g')
-		dbrootpasswd=$(grep -oP 'MYSQL_ROOT_PASSWORD:\s*\K.*' /home/web/docker-compose.yml | tr -d '[:space:]')
+		if [ -f /home/web/docker-compose.yml ] &&
+			docker inspect mysql > /dev/null 2>&1; then
+			dbrootpasswd=$(grep -oP 'MYSQL_ROOT_PASSWORD:\s*\K.*' /home/web/docker-compose.yml | tr -d '[:space:]')
+			echo "正在删除数据库: $dbname"
+			if docker exec mysql mysql -u root -p"$dbrootpasswd" \
+				-e "DROP DATABASE IF EXISTS \`${dbname}\`;" > /dev/null 2>&1; then
+				echo "KPANEL_DELETE_DATABASE dropped $yuming"
+			else
+				echo "KPANEL_DELETE_DATABASE failed $yuming"
+				action_status=1
+			fi
+		else
+			echo "KPANEL_DELETE_DATABASE skipped $yuming"
+		fi
 
-		# 删除数据库前检查是否存在，避免报错
-		echo "正在删除数据库: $dbname"
-		docker exec mysql mysql -u root -p"$dbrootpasswd" -e "DROP DATABASE ${dbname};" > /dev/null 2>&1
+		if [ -e "/home/web/html/$yuming" ] ||
+			[ -e "/home/web/conf.d/$yuming.conf" ] ||
+			[ -e "/home/web/certs/${yuming}_key.pem" ] ||
+			[ -e "/home/web/certs/${yuming}_cert.pem" ]; then
+			echo "站点产物删除不完整: $yuming"
+			action_status=1
+		else
+			echo "KPANEL_DELETE_SITE deleted $yuming"
+		fi
 	done
 
-	docker exec nginx nginx -s reload
+	if docker inspect nginx > /dev/null 2>&1; then
+		if ! docker exec nginx nginx -t > /dev/null 2>&1 ||
+			! docker exec nginx nginx -s reload; then
+			echo "Nginx 配置验证或重载失败"
+			action_status=1
+		fi
+	else
+		echo "KPANEL_DELETE_WARNING nginx_unavailable"
+	fi
 
+	return "$action_status"
 }
 
 
@@ -2344,8 +2473,66 @@ check_nginx_compression() {
 	fi
 }
 
+ldnmp_optimization_mode() {
+	local mode="${1:-}"
+	local cpu_cores connections connections_per_core php_fpm_source mysql_source
+	case "$mode" in
+		standard)
+			connections_per_core=1024
+			php_fpm_source="www-1.conf"
+			mysql_source="custom_mysql_config-1.cnf"
+			;;
+		high)
+			connections_per_core=2048
+			php_fpm_source="www.conf"
+			mysql_source="custom_mysql_config.cnf"
+			;;
+		*)
+			echo "不支持的 LDNMP 优化模式" >&2
+			return 2
+			;;
+	esac
 
+	cpu_cores=$(nproc)
+	connections=$((connections_per_core * cpu_cores))
+	sed -i "s/worker_processes.*/worker_processes ${cpu_cores};/" /home/web/nginx.conf
+	sed -i "s/worker_connections.*/worker_connections ${connections};/" /home/web/nginx.conf
 
+	wget -O /home/optimized_php.ini "${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/optimized_php.ini" &&
+		docker cp /home/optimized_php.ini php:/usr/local/etc/php/conf.d/optimized_php.ini
+	docker inspect php74 >/dev/null 2>&1 &&
+		docker cp /home/optimized_php.ini php74:/usr/local/etc/php/conf.d/optimized_php.ini
+	rm -f /home/optimized_php.ini
+
+	wget -O /home/www.conf "${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/${php_fpm_source}" &&
+		docker cp /home/www.conf php:/usr/local/etc/php-fpm.d/www.conf
+	docker inspect php74 >/dev/null 2>&1 &&
+		docker cp /home/www.conf php74:/usr/local/etc/php-fpm.d/www.conf
+	rm -f /home/www.conf
+
+	if [ "$mode" = high ]; then
+		patch_wp_memory_limit 512M 512M
+	else
+		patch_wp_memory_limit
+	fi
+	patch_wp_debug
+	fix_phpfpm_conf php
+	docker inspect php74 >/dev/null 2>&1 && fix_phpfpm_conf php74
+
+	wget -O /home/custom_mysql_config.cnf \
+		"${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/${mysql_source}" &&
+		docker cp /home/custom_mysql_config.cnf mysql:/etc/mysql/conf.d/
+	rm -f /home/custom_mysql_config.cnf
+
+	cd /home/web && docker compose restart || return 1
+	if [ "$mode" = high ]; then
+		optimize_web_server
+		echo "LDNMP环境已设置成 高性能模式"
+	else
+		optimize_balanced
+		echo "LDNMP环境已设置成 标准模式"
+	fi
+}
 
 web_optimization() {
 		  while true; do
@@ -2367,83 +2554,11 @@ web_optimization() {
 			  case $sub_choice in
 				  1)
 				  send_stats "站点标准模式"
-
-				  local cpu_cores=$(nproc)
-				  local connections=$((1024 * ${cpu_cores}))
-				  sed -i "s/worker_processes.*/worker_processes ${cpu_cores};/" /home/web/nginx.conf
-				  sed -i "s/worker_connections.*/worker_connections ${connections};/" /home/web/nginx.conf
-
-
-				  # php调优
-				  wget -O /home/optimized_php.ini ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/optimized_php.ini
-				  docker cp /home/optimized_php.ini php:/usr/local/etc/php/conf.d/optimized_php.ini
-				  docker cp /home/optimized_php.ini php74:/usr/local/etc/php/conf.d/optimized_php.ini
-				  rm -rf /home/optimized_php.ini
-
-				  # php调优
-				  wget -O /home/www.conf ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/www-1.conf
-				  docker cp /home/www.conf php:/usr/local/etc/php-fpm.d/www.conf
-				  docker cp /home/www.conf php74:/usr/local/etc/php-fpm.d/www.conf
-				  rm -rf /home/www.conf
-
-				  patch_wp_memory_limit
-				  patch_wp_debug
-
-				  fix_phpfpm_conf php
-				  fix_phpfpm_conf php74
-
-				  # mysql调优
-				  wget -O /home/custom_mysql_config.cnf ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/custom_mysql_config-1.cnf
-				  docker cp /home/custom_mysql_config.cnf mysql:/etc/mysql/conf.d/
-				  rm -rf /home/custom_mysql_config.cnf
-
-
-				  cd /home/web && docker compose restart
-
-				  optimize_balanced
-
-
-				  echo "LDNMP环境已设置成 标准模式"
-
+				  ldnmp_optimization_mode standard
 					  ;;
 				  2)
 				  send_stats "站点高性能模式"
-
-				  # nginx调优
-				  local cpu_cores=$(nproc)
-				  local connections=$((2048 * ${cpu_cores}))
-				  sed -i "s/worker_processes.*/worker_processes ${cpu_cores};/" /home/web/nginx.conf
-				  sed -i "s/worker_connections.*/worker_connections ${connections};/" /home/web/nginx.conf
-
-				  # php调优
-				  wget -O /home/optimized_php.ini ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/optimized_php.ini
-				  docker cp /home/optimized_php.ini php:/usr/local/etc/php/conf.d/optimized_php.ini
-				  docker cp /home/optimized_php.ini php74:/usr/local/etc/php/conf.d/optimized_php.ini
-				  rm -rf /home/optimized_php.ini
-
-				  # php调优
-				  wget -O /home/www.conf ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/www.conf
-				  docker cp /home/www.conf php:/usr/local/etc/php-fpm.d/www.conf
-				  docker cp /home/www.conf php74:/usr/local/etc/php-fpm.d/www.conf
-				  rm -rf /home/www.conf
-
-				  patch_wp_memory_limit 512M 512M
-				  patch_wp_debug
-
-				  fix_phpfpm_conf php
-				  fix_phpfpm_conf php74
-
-				  # mysql调优
-				  wget -O /home/custom_mysql_config.cnf ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/custom_mysql_config.cnf
-				  docker cp /home/custom_mysql_config.cnf mysql:/etc/mysql/conf.d/
-				  rm -rf /home/custom_mysql_config.cnf
-
-				  cd /home/web && docker compose restart
-
-				  optimize_web_server
-
-				  echo "LDNMP环境已设置成 高性能模式"
-
+				  ldnmp_optimization_mode high
 					  ;;
 				  3)
 				  send_stats "nginx_gzip on"
@@ -2544,19 +2659,18 @@ check_docker_image_update() {
 	local container_name=$1
 	update_status=""
 
-	# 1. 区域检查
-	local country=$(curl -s --max-time 2 ipinfo.io/country)
-	[[ "$country" == "CN" ]] && return
-
-	# 2. 获取本地镜像信息
-	local container_info=$(docker inspect --format='{{.Created}},{{.Config.Image}}' "$container_name" 2>/dev/null)
+	# 1. 获取容器及本地镜像信息。更新检测不再按地区跳过。
+	local container_info
+	container_info=$(docker inspect --format='{{.Created}},{{.Config.Image}},{{.Image}}' "$container_name" 2>/dev/null)
 	[[ -z "$container_info" ]] && return
 
-	local container_created=$(echo "$container_info" | cut -d',' -f1)
-	local full_image_name=$(echo "$container_info" | cut -d',' -f2)
-	local container_created_ts=$(date -d "$container_created" +%s 2>/dev/null)
+	local container_created full_image_name container_image_id container_created_ts
+	container_created=$(echo "$container_info" | cut -d',' -f1)
+	full_image_name=$(echo "$container_info" | cut -d',' -f2)
+	container_image_id=$(echo "$container_info" | cut -d',' -f3)
+	container_created_ts=$(date -d "$container_created" +%s 2>/dev/null)
 
-	# 3. 智能路由判断
+	# 2. 智能路由判断
 	if [[ "$full_image_name" == ghcr.io* ]]; then
 		# --- 场景 A: 镜像在 GitHub (ghcr.io) ---
 		# 提取仓库路径，例如 ghcr.io/onexru/oneimg -> onexru/oneimg
@@ -2572,19 +2686,45 @@ check_docker_image_update() {
 
 	else
 		# --- 场景 C: 标准 Docker Hub ---
-		local image_repo=${full_image_name%%:*}
-		local image_tag=${full_image_name##*:}
-		[[ "$image_repo" == "$image_tag" ]] && image_tag="latest"
+		local docker_ref image_repo image_tag api_payload remote_digest local_digest
+		docker_ref=${full_image_name#docker.io/}
+		docker_ref=${docker_ref#index.docker.io/}
+		docker_ref=${docker_ref#registry-1.docker.io/}
+		if [[ "$docker_ref" == *@* ]]; then
+			image_repo=${docker_ref%@*}
+			image_tag="latest"
+		elif [[ "${docker_ref##*/}" == *:* ]]; then
+			image_repo=${docker_ref%:*}
+			image_tag=${docker_ref##*:}
+		else
+			image_repo=$docker_ref
+			image_tag="latest"
+		fi
 		[[ "$image_repo" != */* ]] && image_repo="library/$image_repo"
 
 		local api_url="https://hub.docker.com/v2/repositories/$image_repo/tags/$image_tag"
-		local remote_date=$(curl -s "$api_url" | jq -r '.last_updated' 2>/dev/null)
+		api_payload=$(curl -fsSL --max-time 8 "$api_url" 2>/dev/null)
+		remote_digest=$(printf '%s' "$api_payload" | jq -r '.digest // empty' 2>/dev/null)
+		local remote_date
+		remote_date=$(printf '%s' "$api_payload" | jq -r '.last_updated // empty' 2>/dev/null)
+		local_digest=$(
+			docker image inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' "$container_image_id" 2>/dev/null |
+				sed -n 's/^.*@\(sha256:[a-f0-9]\{64\}\)$/\1/p' |
+				head -n 1
+		)
+		if [[ "$remote_digest" =~ ^sha256:[a-f0-9]{64}$ && "$local_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+			if [[ "$remote_digest" != "$local_digest" ]]; then
+				update_status="${gl_huang}发现新版本!${gl_bai}"
+			fi
+			return
+		fi
 	fi
 
-	# 4. 时间戳对比
+	# 3. Registry 未提供可比较摘要时，兼容使用发布时间判断。
 	if [[ -n "$remote_date" && "$remote_date" != "null" ]]; then
 		local remote_ts=$(date -d "$remote_date" +%s 2>/dev/null)
-		if [[ $container_created_ts -lt $remote_ts ]]; then
+		if [[ "$container_created_ts" =~ ^[0-9]+$ && "$remote_ts" =~ ^[0-9]+$ ]] &&
+			[[ $container_created_ts -lt $remote_ts ]]; then
 			update_status="${gl_huang}发现新版本!${gl_bai}"
 		fi
 	fi
@@ -2596,56 +2736,50 @@ check_docker_image_update() {
 
 
 
+get_container_ipv4_addresses() {
+	local container_name_or_id=$1
+	local container_ips
+
+	container_ips=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if .IPAddress}}{{println .IPAddress}}{{end}}{{end}}' "$container_name_or_id" 2>/dev/null) || return 1
+	printf '%s\n' "$container_ips" | awk 'NF && !seen[$0]++'
+}
+
+ensure_docker_user_rule() {
+	if ! iptables -C DOCKER-USER "$@" &>/dev/null; then
+		iptables -I DOCKER-USER "$@"
+	fi
+}
+
+remove_docker_user_rule() {
+	if iptables -C DOCKER-USER "$@" &>/dev/null; then
+		iptables -D DOCKER-USER "$@"
+	fi
+}
+
 block_container_port() {
 	local container_name_or_id=$1
 	local allowed_ip=$2
+	local container_ips
+	local container_ip
 
-	# 获取容器的 IP 地址
-	local container_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name_or_id")
-
-	if [ -z "$container_ip" ]; then
+	# 获取容器在所有 Docker 网络中的 IPv4 地址，逐个应用规则。
+	container_ips=$(get_container_ipv4_addresses "$container_name_or_id")
+	if [ -z "$container_ips" ]; then
+		echo "错误：无法获取容器 ${container_name_or_id} 的 IPv4 地址。" >&2
 		return 1
 	fi
 
 	install iptables
 
-
-	# 检查并封禁其他所有 IP
-	if ! iptables -C DOCKER-USER -p tcp -d "$container_ip" -j DROP &>/dev/null; then
-		iptables -I DOCKER-USER -p tcp -d "$container_ip" -j DROP
-	fi
-
-	# 检查并放行指定 IP
-	if ! iptables -C DOCKER-USER -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -I DOCKER-USER -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT
-	fi
-
-	# 检查并放行本地网络 127.0.0.0/8
-	if ! iptables -C DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -I DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT
-	fi
-
-
-
-	# 检查并封禁其他所有 IP
-	if ! iptables -C DOCKER-USER -p udp -d "$container_ip" -j DROP &>/dev/null; then
-		iptables -I DOCKER-USER -p udp -d "$container_ip" -j DROP
-	fi
-
-	# 检查并放行指定 IP
-	if ! iptables -C DOCKER-USER -p udp -s "$allowed_ip" -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -I DOCKER-USER -p udp -s "$allowed_ip" -d "$container_ip" -j ACCEPT
-	fi
-
-	# 检查并放行本地网络 127.0.0.0/8
-	if ! iptables -C DOCKER-USER -p udp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -I DOCKER-USER -p udp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT
-	fi
-
-	if ! iptables -C DOCKER-USER -m state --state ESTABLISHED,RELATED -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -I DOCKER-USER -m state --state ESTABLISHED,RELATED -d "$container_ip" -j ACCEPT
-	fi
-
+	while IFS= read -r container_ip; do
+		ensure_docker_user_rule -p tcp -d "$container_ip" -j DROP || return 1
+		ensure_docker_user_rule -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT || return 1
+		ensure_docker_user_rule -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT || return 1
+		ensure_docker_user_rule -p udp -d "$container_ip" -j DROP || return 1
+		ensure_docker_user_rule -p udp -s "$allowed_ip" -d "$container_ip" -j ACCEPT || return 1
+		ensure_docker_user_rule -p udp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT || return 1
+		ensure_docker_user_rule -m state --state ESTABLISHED,RELATED -d "$container_ip" -j ACCEPT || return 1
+	done <<< "$container_ips"
 
 	echo "已阻止IP+端口访问该服务"
 	save_iptables_rules
@@ -2657,56 +2791,27 @@ block_container_port() {
 clear_container_rules() {
 	local container_name_or_id=$1
 	local allowed_ip=$2
+	local container_ips
+	local container_ip
 
-	# 获取容器的 IP 地址
-	local container_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_name_or_id")
-
-	if [ -z "$container_ip" ]; then
+	# 获取容器在所有 Docker 网络中的 IPv4 地址，逐个清除规则。
+	container_ips=$(get_container_ipv4_addresses "$container_name_or_id")
+	if [ -z "$container_ips" ]; then
+		echo "错误：无法获取容器 ${container_name_or_id} 的 IPv4 地址。" >&2
 		return 1
 	fi
 
 	install iptables
 
-
-	# 清除封禁其他所有 IP 的规则
-	if iptables -C DOCKER-USER -p tcp -d "$container_ip" -j DROP &>/dev/null; then
-		iptables -D DOCKER-USER -p tcp -d "$container_ip" -j DROP
-	fi
-
-	# 清除放行指定 IP 的规则
-	if iptables -C DOCKER-USER -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -D DOCKER-USER -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT
-	fi
-
-	# 清除放行本地网络 127.0.0.0/8 的规则
-	if iptables -C DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -D DOCKER-USER -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT
-	fi
-
-
-
-
-
-	# 清除封禁其他所有 IP 的规则
-	if iptables -C DOCKER-USER -p udp -d "$container_ip" -j DROP &>/dev/null; then
-		iptables -D DOCKER-USER -p udp -d "$container_ip" -j DROP
-	fi
-
-	# 清除放行指定 IP 的规则
-	if iptables -C DOCKER-USER -p udp -s "$allowed_ip" -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -D DOCKER-USER -p udp -s "$allowed_ip" -d "$container_ip" -j ACCEPT
-	fi
-
-	# 清除放行本地网络 127.0.0.0/8 的规则
-	if iptables -C DOCKER-USER -p udp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -D DOCKER-USER -p udp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT
-	fi
-
-
-	if iptables -C DOCKER-USER -m state --state ESTABLISHED,RELATED -d "$container_ip" -j ACCEPT &>/dev/null; then
-		iptables -D DOCKER-USER -m state --state ESTABLISHED,RELATED -d "$container_ip" -j ACCEPT
-	fi
-
+	while IFS= read -r container_ip; do
+		remove_docker_user_rule -p tcp -d "$container_ip" -j DROP || return 1
+		remove_docker_user_rule -p tcp -s "$allowed_ip" -d "$container_ip" -j ACCEPT || return 1
+		remove_docker_user_rule -p tcp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT || return 1
+		remove_docker_user_rule -p udp -d "$container_ip" -j DROP || return 1
+		remove_docker_user_rule -p udp -s "$allowed_ip" -d "$container_ip" -j ACCEPT || return 1
+		remove_docker_user_rule -p udp -s 127.0.0.0/8 -d "$container_ip" -j ACCEPT || return 1
+		remove_docker_user_rule -m state --state ESTABLISHED,RELATED -d "$container_ip" -j ACCEPT || return 1
+	done <<< "$container_ips"
 
 	echo "已允许IP+端口访问该服务"
 	save_iptables_rules
@@ -2857,10 +2962,422 @@ grep -qxF "${app_id}" /home/docker/appno.txt || echo "${app_id}" >> /home/docker
 
 }
 
+kpanel_app_progress() {
+	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] || return 0
+	printf 'KPANEL_PROGRESS %s %s\n' "$1" "$2"
+}
+
+kpanel_app_interactive_manage_choice() {
+	local target_variable="$1"
+	local selected_choice=""
+
+	if [ "${KJ_APP_MARKER_RECOVERY:-0}" != "1" ]; then
+		kpanel_app_verified_service true || return 1
+	fi
+	read -r -e -p "请输入你的选择: " selected_choice || return 1
+	if [[ ! "$selected_choice" =~ ^[0-9]+$ ]]; then
+		echo "错误: KPanel 应用管理终端只接受菜单编号"
+		return 1
+	fi
+	printf -v "$target_variable" '%s' "$selected_choice"
+}
+
+kpanel_app_interactive_choice() {
+	local target_variable="$1"
+
+	[ "${KJ_APP_INTERACTIVE:-}" = "1" ] || return 2
+	case "${KJ_APP_ACTION:-}" in
+		install)
+			printf -v "$target_variable" '%s' "1"
+			;;
+		update)
+			kpanel_app_verified_service true || return 1
+			printf -v "$target_variable" '%s' "2"
+			;;
+		uninstall)
+			kpanel_app_verified_service true || return 1
+			printf -v "$target_variable" '%s' "3"
+			;;
+		manage)
+			kpanel_app_interactive_manage_choice "$target_variable"
+			;;
+		direct_access)
+			kpanel_app_verified_service true || return 1
+			case "${KJ_APP_ACCESS_MODE:-}" in
+				direct)
+					printf -v "$target_variable" '%s' "7"
+					;;
+				domain_only)
+					printf -v "$target_variable" '%s' "8"
+					;;
+				*)
+					echo "错误: KPanel 未提供有效的应用访问模式"
+					return 1
+					;;
+			esac
+			;;
+		*)
+			echo "错误: KPanel 交互终端不支持此应用操作"
+			return 1
+			;;
+	esac
+}
+
+kpanel_web_progress() {
+	[ "${KJ_WEB_NONINTERACTIVE:-}" = "1" ] || return 0
+	printf 'KPANEL_PROGRESS %s %s\n' "$1" "$2"
+}
+
+kpanel_web_interactive() {
+	[ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ] &&
+		[ "${KJ_WEB_INTERACTIVE:-0}" = "1" ]
+}
+
+kpanel_app_service_name() {
+	local service_name="${docker_app_service:-${docker_name:-}}"
+
+	if [[ ! "$service_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+		echo "错误: 应用主容器名称无效" >&2
+		return 1
+	fi
+	printf '%s\n' "$service_name"
+}
+
+kpanel_app_verified_service() {
+	local verify_expected="${1:-true}"
+	local service_name=""
+	local container_id=""
+	local expected_id="${KJ_APP_EXPECTED_CONTAINER_ID:-}"
+
+	service_name="$(kpanel_app_service_name)" || return 1
+	container_id="$(docker inspect --format '{{.Id}}' "$service_name" 2>/dev/null)" || {
+		echo "错误: 未发现应用主容器 ${service_name}" >&2
+		return 1
+	}
+	[ -n "$container_id" ] || {
+		echo "错误: 无法确认应用主容器 ${service_name}" >&2
+		return 1
+	}
+	if [ "$verify_expected" = "true" ] && [ -n "$expected_id" ] &&
+		[ "$container_id" != "$expected_id" ]; then
+		echo "错误: 应用主容器已变化，请刷新面板后重试" >&2
+		return 1
+	fi
+	printf '%s\n' "$service_name"
+}
+
+kpanel_app_access_path() {
+	if [[ ! "${docker_name:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+		echo "错误: 应用状态文件名称无效" >&2
+		return 1
+	fi
+	printf '/home/docker/%s_access.conf\n' "$docker_name"
+}
+
+kpanel_app_read_access_mode() {
+	local access_path=""
+	local access_mode=""
+	local service_name=""
+	local container_ips=""
+	local container_ip=""
+	local all_blocked="true"
+
+	access_path="$(kpanel_app_access_path)" || return 1
+	if [ -f "$access_path" ] && [ ! -L "$access_path" ]; then
+		access_mode="$(tr -d '\r\n' < "$access_path" 2>/dev/null)"
+	fi
+	case "$access_mode" in
+		direct|domain_only)
+			printf '%s\n' "$access_mode"
+			return 0
+			;;
+	esac
+	service_name="$(kpanel_app_service_name)" || return 1
+	container_ips="$(get_container_ipv4_addresses "$service_name")"
+	if [ -n "$container_ips" ] && command -v iptables >/dev/null 2>&1; then
+		while IFS= read -r container_ip; do
+			if ! iptables -C DOCKER-USER -p tcp -d "$container_ip" -j DROP >/dev/null 2>&1; then
+				all_blocked="false"
+				break
+			fi
+		done <<< "$container_ips"
+	else
+		all_blocked="false"
+	fi
+	if [ "$all_blocked" = "true" ]; then
+		printf '%s\n' "domain_only"
+	else
+		printf '%s\n' "direct"
+	fi
+}
+
+kpanel_app_write_access_mode() {
+	local access_mode="$1"
+	local access_path=""
+	local temporary=""
+
+	case "$access_mode" in
+		direct|domain_only) ;;
+		*)
+			echo "错误: 不支持的应用访问模式" >&2
+			return 1
+			;;
+	esac
+	setup_docker_dir || return 1
+	access_path="$(kpanel_app_access_path)" || return 1
+	temporary="$(mktemp "/home/docker/.${docker_name}_access.XXXXXX")" || return 1
+	if ! printf '%s\n' "$access_mode" > "$temporary" ||
+		! chmod 0644 "$temporary" ||
+		! mv -f "$temporary" "$access_path"; then
+		rm -f "$temporary"
+		return 1
+	fi
+}
+
+kpanel_app_apply_access_mode() {
+	local access_mode="$1"
+	local verify_expected="${2:-true}"
+	local service_name=""
+
+	service_name="$(kpanel_app_verified_service "$verify_expected")" || return 1
+	ip_address
+	case "$access_mode" in
+		direct)
+			clear_container_rules "$service_name" "$ipv4_address" || return 1
+			;;
+		domain_only)
+			block_container_port "$service_name" "$ipv4_address" || return 1
+			;;
+		*)
+			echo "错误: 不支持的应用访问模式" >&2
+			return 1
+			;;
+	esac
+	kpanel_app_write_access_mode "$access_mode"
+}
+
+kpanel_app_restore_access_mode() {
+	local access_mode="$1"
+
+	if [ "$access_mode" = "domain_only" ]; then
+		kpanel_app_apply_access_mode domain_only false
+	else
+		kpanel_app_write_access_mode direct
+	fi
+}
+
+kpanel_app_remove_compatibility_state() {
+	local access_path=""
+
+	access_path="$(kpanel_app_access_path)" || return 1
+	rm -f "/home/docker/${docker_name}_port.conf" "$access_path" || return 1
+	if [ -f /home/docker/appno.txt ]; then
+		sed -i "/\b${app_id}\b/d" /home/docker/appno.txt || return 1
+	fi
+}
+
+kpanel_app_install_port() {
+	local requested_port="${KJ_APP_PORT:-${docker_port:-}}"
+
+	case "$requested_port" in
+		''|*[!0-9]*)
+			echo "错误: KPanel 未提供有效的应用端口"
+			return 1
+			;;
+	esac
+	if [ "$requested_port" -lt 1 ] || [ "$requested_port" -gt 65535 ]; then
+		echo "错误: KPanel 应用端口必须在 1-65535 之间"
+		return 1
+	fi
+	if kpanel_app_port_in_use "$requested_port"; then
+		echo "错误: 端口 ${requested_port} 已被占用"
+		return 1
+	fi
+	docker_port="$requested_port"
+	return 0
+}
+
+kpanel_app_port_in_use() {
+	local requested_port="$1"
+
+	ss -H -lntu 2>/dev/null |
+		awk -v requested_port="$requested_port" '
+			{
+				local_address = $5
+				sub(/^.*:/, "", local_address)
+				if (local_address == requested_port) {
+					found = 1
+				}
+			}
+			END { exit(found ? 0 : 1) }
+		'
+}
+
+kpanel_app_choose_install_port() {
+	local app_port=""
+
+	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ] && [ -n "${KJ_APP_PORT:-}" ]; then
+		kpanel_app_install_port
+		return $?
+	fi
+	while true; do
+		read -e -p "输入应用对外服务端口，回车默认使用${docker_port}端口: " app_port
+		app_port=${app_port:-${docker_port}}
+
+		if kpanel_app_port_in_use "$app_port"; then
+			echo -e "${gl_hong}错误: ${gl_bai}端口 $app_port 已被占用，请更换一个端口"
+			send_stats "应用端口已被占用"
+		else
+			docker_port="$app_port"
+			return 0
+		fi
+	done
+}
+
+kpanel_run_docker_app_install() {
+	local adapter="$1"
+
+	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] || return 2
+	if [ "${KJ_APP_ACTION:-}" != "install" ]; then
+		echo "错误: KPanel 当前仅允许非交互安装"
+		return 1
+	fi
+
+	kpanel_app_progress 5 "正在校验端口与宿主机环境"
+	kpanel_app_install_port || return 1
+	setup_docker_dir || return 1
+	check_disk_space "${app_size:-1}" /home/docker || return 1
+	kpanel_app_progress 15 "正在准备 Docker 运行环境"
+	install jq || return 1
+	install_docker || return 1
+	kpanel_app_progress 30 "正在执行 kejilion.sh 应用安装函数"
+
+	if [ "$adapter" = "plus" ]; then
+		if ! docker_app_install; then
+			echo "安装失败: 未登记应用状态"
+			return 1
+		fi
+	else
+		if ! docker_rum; then
+			echo "安装失败: 未登记应用状态"
+			return 1
+		fi
+	fi
+
+	kpanel_app_progress 90 "正在写入 kejilion.sh 兼容状态"
+	echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
+	add_app_id
+	if [ "${KJ_APP_ACCESS_MODE:-direct}" = "domain_only" ]; then
+		kpanel_app_apply_access_mode domain_only false || return 1
+	else
+		kpanel_app_write_access_mode direct || return 1
+	fi
+	if [ "$adapter" = "standard" ]; then
+		[ -n "${docker_use:-}" ] && $docker_use
+		[ -n "${docker_passwd:-}" ] && $docker_passwd
+	fi
+	kpanel_app_progress 100 "应用安装完成"
+	echo "$docker_name 已经安装完成"
+	return 0
+}
+
+kpanel_run_docker_app_action() {
+	local adapter="$1"
+	local action="${KJ_APP_ACTION:-}"
+	local service_name=""
+	local access_mode=""
+
+	[ "${KJ_APP_NONINTERACTIVE:-}" = "1" ] || return 2
+	case "$action" in
+		install)
+			kpanel_run_docker_app_install "$adapter"
+			return $?
+			;;
+		update|uninstall|direct_access) ;;
+		*)
+			echo "错误: KPanel 不支持此应用操作"
+			return 1
+			;;
+	esac
+
+	kpanel_app_progress 5 "正在核对 kejilion.sh 安装标记与主容器"
+	service_name="$(kpanel_app_verified_service true)" || return 1
+	if ! grep -qxF "${app_id}" /home/docker/appno.txt 2>/dev/null; then
+		if [ "${KJ_APP_RECONCILE_MARKER:-0}" != "1" ]; then
+			echo "错误: 未发现 kejilion.sh 应用安装标记"
+			return 1
+		fi
+		kpanel_app_progress 10 "正在修复 kejilion.sh 应用安装标记"
+		add_app_id || return 1
+	fi
+
+	case "$action" in
+		update)
+			access_mode="$(kpanel_app_read_access_mode)" || return 1
+			kpanel_app_verified_service true >/dev/null || return 1
+			kpanel_app_progress 25 "正在执行 kejilion.sh 原生更新函数"
+			if [ "$adapter" = "plus" ]; then
+				docker_app_update || return 1
+			else
+				docker rm -f "$docker_name" || return 1
+				docker rmi -f "$docker_img" >/dev/null 2>&1 || true
+				docker_rum || return 1
+			fi
+			kpanel_app_verified_service false >/dev/null || return 1
+			add_app_id
+			kpanel_app_progress 80 "正在恢复应用访问策略"
+			kpanel_app_restore_access_mode "$access_mode" || return 1
+			if [ "$adapter" = "standard" ]; then
+				[ -n "${docker_use:-}" ] && $docker_use
+				[ -n "${docker_passwd:-}" ] && $docker_passwd
+			fi
+			kpanel_app_progress 100 "应用更新完成"
+			echo "$service_name 已经更新完成"
+			;;
+		uninstall)
+			kpanel_app_verified_service true >/dev/null || return 1
+			kpanel_app_progress 25 "正在执行 kejilion.sh 原生卸载函数"
+			if [ "$adapter" = "plus" ]; then
+				docker_app_uninstall || return 1
+			else
+				docker rm -f "$docker_name" || return 1
+				docker rmi -f "$docker_img" >/dev/null 2>&1 || true
+				rm -rf "/home/docker/$docker_name" || return 1
+			fi
+			if docker inspect "$service_name" >/dev/null 2>&1; then
+				echo "错误: 卸载函数完成后主容器仍然存在"
+				return 1
+			fi
+			kpanel_app_remove_compatibility_state || return 1
+			kpanel_app_progress 100 "应用卸载完成"
+			echo "$service_name 已经卸载完成"
+			;;
+		direct_access)
+			access_mode="${KJ_APP_ACCESS_MODE:-}"
+			case "$access_mode" in
+				direct|domain_only) ;;
+				*)
+					echo "错误: KPanel 未提供有效的应用访问模式"
+					return 1
+					;;
+			esac
+			kpanel_app_progress 40 "正在执行 kejilion.sh IP+端口访问策略"
+			kpanel_app_apply_access_mode "$access_mode" true || return 1
+			kpanel_app_progress 100 "应用访问策略更新完成"
+			;;
+	esac
+	return 0
+}
+
 
 
 docker_app() {
 send_stats "${docker_name}管理"
+
+if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
+	kpanel_run_docker_app_action standard
+	return $?
+fi
 
 while true; do
 	clear
@@ -2887,30 +3404,30 @@ while true; do
 	echo "------------------------"
 	echo "0. 返回上一级选单"
 	echo "------------------------"
-	read -e -p "请输入你的选择: " choice
+	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+		kpanel_app_interactive_choice choice || return 1
+	else
+		read -e -p "请输入你的选择: " choice
+	fi
+	local action_status=0
 	 case $choice in
 		1)
 			setup_docker_dir
 			check_disk_space $app_size /home/docker
-			while true; do
-				read -e -p "输入应用对外服务端口，回车默认使用${docker_port}端口: " app_port
-				local app_port=${app_port:-${docker_port}}
-
-				if ss -tuln | grep -q ":$app_port "; then
-					echo -e "${gl_hong}错误: ${gl_bai}端口 $app_port 已被占用，请更换一个端口"
-					send_stats "应用端口已被占用"
-				else
-					local docker_port=$app_port
-					break
-				fi
-			done
+			kpanel_app_choose_install_port || return 1
 
 			install jq
 			install_docker
-			docker_rum
+			if ! docker_rum; then
+				echo -e "${gl_hong}安装失败: ${gl_bai}应用容器未能启动。"
+				if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+					return 1
+				fi
+			fi
 			echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
 
 			add_app_id
+			kpanel_app_write_access_mode direct
 
 			clear
 			echo "$docker_name 已经安装完成"
@@ -2923,9 +3440,15 @@ while true; do
 		2)
 			docker rm -f "$docker_name"
 			docker rmi -f "$docker_img"
-			docker_rum
+			if ! docker_rum; then
+				echo -e "${gl_hong}更新失败: ${gl_bai}应用容器未能重新启动。"
+				if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+					return 1
+				fi
+			fi
 
 			add_app_id
+			kpanel_app_restore_access_mode "$(kpanel_app_read_access_mode)"
 
 			clear
 			echo "$docker_name 已经安装完成"
@@ -2936,10 +3459,16 @@ while true; do
 			send_stats "更新$docker_name"
 			;;
 		3)
-			docker rm -f "$docker_name"
+			if ! docker rm -f "$docker_name"; then
+				echo -e "${gl_hong}卸载失败: ${gl_bai}应用容器未能删除。"
+				if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+					return 1
+				fi
+			fi
 			docker rmi -f "$docker_img"
 			rm -rf "/home/docker/$docker_name"
 			rm -f /home/docker/${docker_name}_port.conf
+			rm -f /home/docker/${docker_name}_access.conf
 
 			sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
 			echo "应用已卸载"
@@ -2952,27 +3481,33 @@ while true; do
 			add_yuming
 			ldnmp_Proxy ${yuming} 127.0.0.1 ${docker_port}
 			block_container_port "$docker_name" "$ipv4_address"
+			kpanel_app_write_access_mode domain_only || action_status=1
 			;;
 
 		6)
 			echo "域名格式 example.com 不带https://"
-			web_del
+			web_del || action_status=1
 			;;
 
 		7)
 			send_stats "允许IP访问 ${docker_name}"
 			clear_container_rules "$docker_name" "$ipv4_address"
+			kpanel_app_write_access_mode direct || action_status=1
 			;;
 
 		8)
 			send_stats "阻止IP访问 ${docker_name}"
 			block_container_port "$docker_name" "$ipv4_address"
+			kpanel_app_write_access_mode domain_only || action_status=1
 			;;
 
 		*)
 			break
 			;;
 	 esac
+	 if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+		return "$action_status"
+	 fi
 	 break_end
 done
 
@@ -2984,6 +3519,10 @@ done
 
 docker_app_plus() {
 	send_stats "$app_name"
+	if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
+		kpanel_run_docker_app_action plus
+		return $?
+	fi
 	while true; do
 		clear
 		check_docker_app
@@ -3010,46 +3549,53 @@ docker_app_plus() {
 		echo "------------------------"
 		echo "0. 返回上一级选单"
 		echo "------------------------"
-		read -e -p "输入你的选择: " choice
+		if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+			kpanel_app_interactive_choice choice || return 1
+		else
+			read -e -p "输入你的选择: " choice
+		fi
+		local action_status=0
 		case $choice in
 			1)
 				setup_docker_dir
 				check_disk_space $app_size /home/docker
 
-				while true; do
-					read -e -p "输入应用对外服务端口，回车默认使用${docker_port}端口: " app_port
-					local app_port=${app_port:-${docker_port}}
-
-					if ss -tuln | grep -q ":$app_port "; then
-						echo -e "${gl_hong}错误: ${gl_bai}端口 $app_port 已被占用，请更换一个端口"
-						send_stats "应用端口已被占用"
-					else
-						local docker_port=$app_port
-						break
-					fi
-				done
+				kpanel_app_choose_install_port || return 1
 
 				install jq
 				install_docker
-				docker_app_install
-				echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
-
-				add_app_id
-				send_stats "$app_name 安装"
+				if docker_app_install; then
+					echo "$docker_port" > "/home/docker/${docker_name}_port.conf"
+					add_app_id
+					kpanel_app_write_access_mode direct
+					send_stats "$app_name 安装"
+				else
+					echo -e "${gl_hong}安装失败: ${gl_bai}未登记应用状态，请根据上方错误修复后重试。"
+					action_status=1
+				fi
 				;;
 
 			2)
-				docker_app_update
-				add_app_id
-				send_stats "$app_name 更新"
+				if docker_app_update; then
+					add_app_id
+					kpanel_app_restore_access_mode "$(kpanel_app_read_access_mode)"
+					send_stats "$app_name 更新"
+				else
+					echo -e "${gl_hong}更新失败: ${gl_bai}已保留原应用登记状态。"
+					action_status=1
+				fi
 				;;
 
 			3)
-				docker_app_uninstall
-				rm -f /home/docker/${docker_name}_port.conf
-
-				sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
-				send_stats "$app_name 卸载"
+				if docker_app_uninstall; then
+					rm -f /home/docker/${docker_name}_port.conf
+					rm -f /home/docker/${docker_name}_access.conf
+					sed -i "/\b${app_id}\b/d" /home/docker/appno.txt
+					send_stats "$app_name 卸载"
+				else
+					echo -e "${gl_hong}卸载失败: ${gl_bai}已保留应用登记状态。"
+					action_status=1
+				fi
 				;;
 
 			5)
@@ -3059,25 +3605,32 @@ docker_app_plus() {
 				ldnmp_Proxy ${yuming} 127.0.0.1 ${docker_port}
 				local docker_check_name="${docker_app_service:-$docker_name}"
 				block_container_port "$docker_check_name" "$ipv4_address"
+				kpanel_app_write_access_mode domain_only || action_status=1
 
 				;;
 			6)
 				echo "域名格式 example.com 不带https://"
-				web_del
+				web_del || action_status=1
 				;;
 			7)
 				send_stats "允许IP访问 ${docker_name}"
-				clear_container_rules "$docker_name" "$ipv4_address"
+				local docker_check_name="${docker_app_service:-$docker_name}"
+				clear_container_rules "$docker_check_name" "$ipv4_address"
+				kpanel_app_write_access_mode direct || action_status=1
 				;;
 			8)
 				send_stats "阻止IP访问 ${docker_name}"
 				local docker_check_name="${docker_app_service:-$docker_name}"
 				block_container_port "$docker_check_name" "$ipv4_address"
+				kpanel_app_write_access_mode domain_only || action_status=1
 				;;
 			*)
 				break
 				;;
 		esac
+		if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+			return "$action_status"
+		fi
 		break_end
 	done
 }
@@ -3195,21 +3748,909 @@ check_f2b_status() {
 f2b_install_sshd() {
 
 	docker rm -f fail2ban >/dev/null 2>&1
-	install fail2ban
-	start fail2ban
-	enable fail2ban
+	install fail2ban || return 1
 
-	if command -v dnf &>/dev/null; then
+	if command -v dnf &>/dev/null || command -v yum &>/dev/null; then
+		install rsyslog || return 1
+		/bin/systemctl enable --now rsyslog.service || return 1
 		cd /etc/fail2ban/jail.d/
-		curl -sS -O ${gh_proxy}raw.githubusercontent.com/kejilion/config/main/fail2ban/centos-ssh.conf
+		curl --fail --silent --show-error --location \
+			--output centos-ssh.conf \
+			"${gh_proxy}raw.githubusercontent.com/kejilion/config/main/fail2ban/centos-ssh.conf" || return 1
+		if [ ! -e /var/log/secure ]; then
+			touch /var/log/secure || return 1
+			chmod 0600 /var/log/secure || return 1
+			command -v restorecon >/dev/null 2>&1 && restorecon /var/log/secure || true
+		fi
 	fi
 
 	if command -v apt &>/dev/null; then
-		install rsyslog
-		systemctl start rsyslog
-		systemctl enable rsyslog
+		install rsyslog || return 1
+		/bin/systemctl enable --now rsyslog.service || return 1
 	fi
 
+	if command -v apk >/dev/null 2>&1; then
+		rc-update add fail2ban default || return 1
+		rc-service fail2ban start || return 1
+	else
+		/bin/systemctl enable --now fail2ban.service || return 1
+	fi
+	fail2ban-client -t >/dev/null 2>&1 || return 1
+	fail2ban-client reload >/dev/null 2>&1 || /bin/systemctl restart fail2ban.service
+
+}
+
+kpanel_f2b_jail_name() {
+	if grep -qi 'Alpine' /etc/issue 2>/dev/null &&
+		{ [ -f /etc/fail2ban/filter.d/alpine-sshd.conf ] ||
+		  [ -f /etc/fail2ban/jail.d/alpine-ssh.conf ] ||
+		  [ -f /etc/fail2ban/jail.d/alpine-sshd.local ]; }; then
+		printf '%s\n' "alpine-sshd"
+	else
+		printf '%s\n' "sshd"
+	fi
+}
+
+kpanel_f2b_enabled() {
+	local jail_name
+	command -v fail2ban-client >/dev/null 2>&1 || return 1
+	fail2ban-client ping >/dev/null 2>&1 || return 1
+	jail_name=$(kpanel_f2b_jail_name)
+	fail2ban-client status "$jail_name" >/dev/null 2>&1
+}
+
+kpanel_f2b_autostart() {
+	if command -v apk >/dev/null 2>&1; then
+		rc-update show default 2>/dev/null | grep -Eq '(^|[[:space:]])fail2ban([[:space:]]|$)'
+	else
+		/bin/systemctl is-enabled fail2ban.service >/dev/null 2>&1
+	fi
+}
+
+kpanel_f2b_status() {
+	local installed=false running=false enabled=false autostart=false
+	local jail_name banned=0 jail_status=""
+	jail_name=$(kpanel_f2b_jail_name)
+	if command -v fail2ban-client >/dev/null 2>&1; then
+		installed=true
+		if fail2ban-client ping >/dev/null 2>&1; then
+			running=true
+			if jail_status=$(fail2ban-client status "$jail_name" 2>/dev/null); then
+				enabled=true
+				banned=$(printf '%s\n' "$jail_status" |
+					awk -F: '/Currently banned/{gsub(/[[:space:]]/, "", $2); print $2; exit}')
+				case "$banned" in
+					''|*[!0-9]*) banned=0 ;;
+				esac
+			fi
+		fi
+		kpanel_f2b_autostart && autostart=true
+	fi
+	printf 'KPANEL_F2B_STATUS {"installed":%s,"running":%s,"enabled":%s,"autostart":%s,"jail":"%s","banned":%s}\n' \
+		"$installed" "$running" "$enabled" "$autostart" "$jail_name" "$banned"
+}
+
+kpanel_f2b_dispatch() {
+	local command="${1:-status}" changed=false
+	printf '%s\n' "KPANEL_F2B_PROTOCOL 1"
+	if [ "$command" = "manager" ]; then
+		shift
+		kpanel_f2b_manager_dispatch "$@"
+		return $?
+	fi
+	case "$command" in
+		status)
+			kpanel_f2b_status
+			;;
+		enable)
+			root_use
+			if kpanel_f2b_enabled && kpanel_f2b_autostart; then
+				printf '%s\n' "KPANEL_F2B_RESULT unchanged"
+				kpanel_f2b_status
+				return 0
+			fi
+			f2b_install_sshd || return 1
+			kpanel_f2b_enabled || {
+				echo "Fail2Ban SSH jail 未能正常启动" >&2
+				return 1
+			}
+			changed=true
+			printf 'KPANEL_F2B_RESULT %s\n' "$changed"
+			kpanel_f2b_status
+			;;
+		disable)
+			root_use
+			if ! command -v fail2ban-client >/dev/null 2>&1; then
+				printf '%s\n' "KPANEL_F2B_RESULT unchanged"
+				kpanel_f2b_status
+				return 0
+			fi
+			if command -v apk >/dev/null 2>&1; then
+				service fail2ban stop >/dev/null 2>&1 || true
+				rc-update del fail2ban default >/dev/null 2>&1 || true
+			else
+				/bin/systemctl disable --now fail2ban.service >/dev/null 2>&1 || return 1
+			fi
+			if fail2ban-client ping >/dev/null 2>&1; then
+				echo "Fail2Ban 服务仍在运行" >&2
+				return 1
+			fi
+			changed=true
+			printf 'KPANEL_F2B_RESULT %s\n' "$changed"
+			kpanel_f2b_status
+			;;
+		*)
+			echo "用法: k f2b [status|enable|disable]" >&2
+			return 2
+			;;
+	esac
+}
+
+KPANEL_F2B_MANAGER_PROTOCOL_VERSION="1"
+
+kpanel_f2b_manager_config_file() {
+	printf '%s/etc/fail2ban/jail.d/99-kejilion-sshd.local\n' "${KPANEL_F2B_TEST_ROOT:-}"
+}
+
+kpanel_f2b_manager_log_file() {
+	printf '%s/var/log/fail2ban.log\n' "${KPANEL_F2B_TEST_ROOT:-}"
+}
+
+kpanel_f2b_manager_emit() {
+	local status="$1" version="${2:-}" backup="${3:-}"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || version="$(kpanel_system_resource_zero_version)"
+	printf 'KPANEL_F2B_MANAGER_STATUS=%s\n' "$status"
+	printf 'KPANEL_F2B_MANAGER_VERSION=%s\n' "$version"
+	[ -z "$backup" ] || printf 'KPANEL_F2B_MANAGER_BACKUP=%s\n' "$backup"
+}
+
+kpanel_f2b_manager_error() {
+	printf '错误: %s\n' "$1" >&2
+}
+
+kpanel_f2b_manager_valid_address() {
+	local value="$1"
+	[ -n "$value" ] && [ "${#value}" -le 80 ] &&
+		[[ "$value" != *$'\n'* ]] && [[ "$value" != *$'\r'* ]] &&
+		command -v python3 >/dev/null 2>&1 &&
+		python3 -c 'import ipaddress,sys; value=sys.argv[1]; ipaddress.ip_network(value, strict=False) if "/" in value else ipaddress.ip_address(value)' "$value" >/dev/null 2>&1
+}
+
+kpanel_f2b_manager_valid_ip() {
+	local value="$1"
+	[ -n "$value" ] && [ "${#value}" -le 80 ] && [[ "$value" != */* ]] &&
+		command -v python3 >/dev/null 2>&1 &&
+		python3 -c 'import ipaddress,sys; ipaddress.ip_address(sys.argv[1])' "$value" >/dev/null 2>&1
+}
+
+kpanel_f2b_manager_profile_values() {
+	case "$1" in
+		mild) printf '%s\n' "600 600 8" ;;
+		standard) printf '%s\n' "3600 600 5" ;;
+		strict) printf '%s\n' "43200 600 3" ;;
+		*) return 1 ;;
+	esac
+}
+
+kpanel_f2b_manager_profile() {
+	case "$1:$2:$3" in
+		600:600:8) printf '%s\n' "mild" ;;
+		3600:600:5) printf '%s\n' "standard" ;;
+		43200:600:3) printf '%s\n' "strict" ;;
+		*) printf '%s\n' "custom" ;;
+	esac
+}
+
+kpanel_f2b_manager_read_number() {
+	local jail="$1" key="$2" fallback="$3" value
+	value="$(fail2ban-client get "$jail" "$key" 2>/dev/null | tail -n 1 | tr -d '[:space:]')" || true
+	[[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -le 315360000 ] || value="$fallback"
+	printf '%s\n' "$value"
+}
+
+kpanel_f2b_manager_collect() {
+	local status_file token raw line hex log_file
+	F2B_MANAGER_INSTALLED=false
+	F2B_MANAGER_RUNNING=false
+	F2B_MANAGER_ENABLED=false
+	F2B_MANAGER_AUTOSTART=false
+	F2B_MANAGER_JAIL="$(kpanel_f2b_jail_name)"
+	F2B_MANAGER_CURRENT_FAILED=0
+	F2B_MANAGER_TOTAL_FAILED=0
+	F2B_MANAGER_CURRENT_BANNED=0
+	F2B_MANAGER_TOTAL_BANNED=0
+	F2B_MANAGER_BANTIME=3600
+	F2B_MANAGER_FINDTIME=600
+	F2B_MANAGER_MAXRETRY=5
+	F2B_MANAGER_PROFILE=standard
+	F2B_MANAGER_BANS=()
+	F2B_MANAGER_TRUSTED=()
+	F2B_MANAGER_EVENTS=()
+	F2B_MANAGER_BANS_TRUNCATED=false
+
+	command -v fail2ban-client >/dev/null 2>&1 || return 0
+	F2B_MANAGER_INSTALLED=true
+	fail2ban-client ping >/dev/null 2>&1 || {
+		kpanel_f2b_autostart && F2B_MANAGER_AUTOSTART=true
+		return 0
+	}
+	F2B_MANAGER_RUNNING=true
+	kpanel_f2b_autostart && F2B_MANAGER_AUTOSTART=true
+	status_file="$(mktemp /tmp/kejilion-f2b-status.XXXXXX)" || return 1
+	if ! fail2ban-client status "$F2B_MANAGER_JAIL" > "$status_file" 2>/dev/null; then
+		rm -f -- "$status_file"
+		return 0
+	fi
+	if ! kpanel_system_resource_file_within_bounds "$status_file" 4194304 4096; then
+		rm -f -- "$status_file"
+		return 1
+	fi
+	F2B_MANAGER_ENABLED=true
+	F2B_MANAGER_CURRENT_FAILED="$(awk -F: '/Currently failed/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "$status_file")"
+	F2B_MANAGER_TOTAL_FAILED="$(awk -F: '/Total failed/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "$status_file")"
+	F2B_MANAGER_CURRENT_BANNED="$(awk -F: '/Currently banned/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "$status_file")"
+	F2B_MANAGER_TOTAL_BANNED="$(awk -F: '/Total banned/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "$status_file")"
+	for token in F2B_MANAGER_CURRENT_FAILED F2B_MANAGER_TOTAL_FAILED F2B_MANAGER_CURRENT_BANNED F2B_MANAGER_TOTAL_BANNED; do
+		raw="${!token}"
+		[[ "$raw" =~ ^[0-9]+$ ]] && [ "$raw" -le 1000000000 ] || printf -v "$token" '%s' 0
+	done
+	raw="$(awk -F: '/Banned IP list/{sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' "$status_file")"
+	rm -f -- "$status_file"
+	for token in $raw; do
+		if kpanel_f2b_manager_valid_ip "$token"; then
+			if [ "${#F2B_MANAGER_BANS[@]}" -lt 256 ]; then
+				F2B_MANAGER_BANS+=("$token")
+			else
+				F2B_MANAGER_BANS_TRUNCATED=true
+				break
+			fi
+		fi
+	done
+
+	F2B_MANAGER_BANTIME="$(kpanel_f2b_manager_read_number "$F2B_MANAGER_JAIL" bantime 3600)"
+	F2B_MANAGER_FINDTIME="$(kpanel_f2b_manager_read_number "$F2B_MANAGER_JAIL" findtime 600)"
+	F2B_MANAGER_MAXRETRY="$(kpanel_f2b_manager_read_number "$F2B_MANAGER_JAIL" maxretry 5)"
+	[ "$F2B_MANAGER_MAXRETRY" -ge 1 ] && [ "$F2B_MANAGER_MAXRETRY" -le 1000 ] || F2B_MANAGER_MAXRETRY=5
+	F2B_MANAGER_PROFILE="$(kpanel_f2b_manager_profile "$F2B_MANAGER_BANTIME" "$F2B_MANAGER_FINDTIME" "$F2B_MANAGER_MAXRETRY")"
+
+	raw="$(fail2ban-client get "$F2B_MANAGER_JAIL" ignoreip 2>/dev/null || true)"
+	for token in $raw; do
+		token="${token#[}"
+		token="${token%]}"
+		token="${token%,}"
+		token="${token#\'}"
+		token="${token%\'}"
+		if kpanel_f2b_manager_valid_address "$token"; then
+			[ "${#F2B_MANAGER_TRUSTED[@]}" -ge 64 ] || F2B_MANAGER_TRUSTED+=("$token")
+		fi
+	done
+
+	log_file="$(kpanel_f2b_manager_log_file)"
+	if [ -f "$log_file" ] && [ ! -L "$log_file" ]; then
+		while IFS= read -r line; do
+			[ "${#line}" -le 2048 ] || line="${line:0:2048}"
+			hex="$(printf '%s' "$line" | od -An -v -tx1 | tr -d ' \n')" || continue
+			[ -n "$hex" ] && F2B_MANAGER_EVENTS+=("$hex")
+		done < <(tail -n 200 -- "$log_file" 2>/dev/null | grep -E '\[(sshd|alpine-sshd)\].*(Found|Ban|Unban)[[:space:]]' | tail -n 20)
+	fi
+}
+
+kpanel_f2b_manager_set_version() {
+	local canonical config_file config_hash=absent value version
+	kpanel_f2b_manager_collect || return 1
+	canonical="$(mktemp /tmp/kejilion-f2b-version.XXXXXX)" || return 1
+	config_file="$(kpanel_f2b_manager_config_file)"
+	if [ -f "$config_file" ] && [ ! -L "$config_file" ]; then
+		config_hash="$(sha256sum -- "$config_file" 2>/dev/null | awk '{print $1}')"
+	fi
+	{
+		printf 'installed=%s\nrunning=%s\nenabled=%s\nautostart=%s\njail=%s\n' \
+			"$F2B_MANAGER_INSTALLED" "$F2B_MANAGER_RUNNING" "$F2B_MANAGER_ENABLED" "$F2B_MANAGER_AUTOSTART" "$F2B_MANAGER_JAIL"
+		printf 'bantime=%s\nfindtime=%s\nmaxretry=%s\nconfig=%s\n' \
+			"$F2B_MANAGER_BANTIME" "$F2B_MANAGER_FINDTIME" "$F2B_MANAGER_MAXRETRY" "$config_hash"
+		printf '%s\n' "${F2B_MANAGER_TRUSTED[@]}" | sed '/^$/d' | sort -u | sed 's/^/trusted=/'
+	} > "$canonical"
+	version="$(sha256sum -- "$canonical" 2>/dev/null | awk '{print $1}')"
+	rm -f -- "$canonical"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || return 1
+	F2B_MANAGER_VERSION="$version"
+}
+
+kpanel_f2b_manager_current_version() {
+	kpanel_f2b_manager_set_version || return 1
+	printf '%s\n' "$F2B_MANAGER_VERSION"
+}
+
+kpanel_f2b_manager_snapshot() {
+	local status="${1:-ok}" backup="${2:-}" version value
+	kpanel_f2b_manager_set_version || {
+		kpanel_f2b_manager_emit failed ""
+		return 1
+	}
+	version="$F2B_MANAGER_VERSION"
+	kpanel_f2b_manager_emit "$status" "$version" "$backup"
+	printf 'KPANEL_F2B_MANAGER_INSTALLED=%s\n' "$F2B_MANAGER_INSTALLED"
+	printf 'KPANEL_F2B_MANAGER_RUNNING=%s\n' "$F2B_MANAGER_RUNNING"
+	printf 'KPANEL_F2B_MANAGER_ENABLED=%s\n' "$F2B_MANAGER_ENABLED"
+	printf 'KPANEL_F2B_MANAGER_AUTOSTART=%s\n' "$F2B_MANAGER_AUTOSTART"
+	printf 'KPANEL_F2B_MANAGER_JAIL=%s\n' "$F2B_MANAGER_JAIL"
+	printf 'KPANEL_F2B_MANAGER_CURRENT_FAILED=%s\n' "$F2B_MANAGER_CURRENT_FAILED"
+	printf 'KPANEL_F2B_MANAGER_TOTAL_FAILED=%s\n' "$F2B_MANAGER_TOTAL_FAILED"
+	printf 'KPANEL_F2B_MANAGER_CURRENT_BANNED=%s\n' "$F2B_MANAGER_CURRENT_BANNED"
+	printf 'KPANEL_F2B_MANAGER_TOTAL_BANNED=%s\n' "$F2B_MANAGER_TOTAL_BANNED"
+	printf 'KPANEL_F2B_MANAGER_BANTIME=%s\n' "$F2B_MANAGER_BANTIME"
+	printf 'KPANEL_F2B_MANAGER_FINDTIME=%s\n' "$F2B_MANAGER_FINDTIME"
+	printf 'KPANEL_F2B_MANAGER_MAXRETRY=%s\n' "$F2B_MANAGER_MAXRETRY"
+	printf 'KPANEL_F2B_MANAGER_PROFILE=%s\n' "$F2B_MANAGER_PROFILE"
+	printf 'KPANEL_F2B_MANAGER_BANS_TRUNCATED=%s\n' "$F2B_MANAGER_BANS_TRUNCATED"
+	for value in "${F2B_MANAGER_BANS[@]}"; do printf 'KPANEL_F2B_MANAGER_BAN=%s\n' "$value"; done
+	for value in "${F2B_MANAGER_TRUSTED[@]}"; do printf 'KPANEL_F2B_MANAGER_TRUSTED=%s\n' "$value"; done
+	for value in "${F2B_MANAGER_EVENTS[@]}"; do printf 'KPANEL_F2B_MANAGER_EVENT_HEX=%s\n' "$value"; done
+}
+
+kpanel_f2b_manager_set_file_identity() {
+	local path="$1"
+	if [ -n "${KPANEL_F2B_TEST_ROOT:-}" ]; then
+		chmod 600 -- "$path"
+	else
+		chown 0:0 -- "$path" && chmod 600 -- "$path"
+	fi
+}
+
+kpanel_f2b_manager_write_config() {
+	local jail="$1" bantime="$2" findtime="$3" maxretry="$4" config_file config_dir temporary value
+	shift 4
+	config_file="$(kpanel_f2b_manager_config_file)"
+	config_dir="$(dirname -- "$config_file")"
+	[ -d "$config_dir" ] && [ ! -L "$config_dir" ] && [ ! -L "$config_file" ] || return 1
+	temporary="$(mktemp "$config_dir/.99-kejilion-sshd.local.XXXXXX")" || return 1
+	{
+		printf '[%s]\n' "$jail"
+		printf '%s\n' '# Managed by kejilion.sh for SSH defense'
+		printf 'enabled = true\nbantime = %s\nfindtime = %s\nmaxretry = %s\n' "$bantime" "$findtime" "$maxretry"
+		if [ "$#" -gt 0 ]; then
+			printf 'ignoreip ='
+			for value in "$@"; do printf ' %s' "$value"; done
+			printf '\n'
+		fi
+	} > "$temporary" || { rm -f -- "$temporary"; return 1; }
+	kpanel_f2b_manager_set_file_identity "$temporary" && mv -f -- "$temporary" "$config_file"
+}
+
+kpanel_f2b_manager_restore_config() {
+	local snapshot="$1" config_file
+	config_file="$(kpanel_f2b_manager_config_file)"
+	if [ "$(cat "$snapshot/config.existed" 2>/dev/null)" = true ]; then
+		cp -a -- "$snapshot/config" "$config_file" || return 1
+	else
+		rm -f -- "$config_file" || return 1
+	fi
+	fail2ban-client -t >/dev/null 2>&1 && fail2ban-client reload >/dev/null 2>&1
+}
+
+kpanel_f2b_manager_config_failure() {
+	local snapshot="$1" message="$2" version recovery=""
+	kpanel_f2b_manager_error "$message"
+	if kpanel_f2b_manager_restore_config "$snapshot"; then
+		version="$(kpanel_f2b_manager_current_version 2>/dev/null || true)"
+		rm -rf -- "$snapshot"
+		kpanel_f2b_manager_emit failed "$version"
+	else
+		recovery="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot" ssh-defense 2>/dev/null || true)"
+		version="$(kpanel_f2b_manager_current_version 2>/dev/null || true)"
+		kpanel_f2b_manager_emit rollback-failed "$version" "$recovery"
+	fi
+	return 1
+}
+
+kpanel_f2b_manager_config_action() {
+	local action="$1" expected="$2" value="$3" current_version profile bantime findtime maxretry snapshot config_file
+	local trusted=() item changed=false
+	kpanel_f2b_manager_set_version || { kpanel_f2b_manager_emit failed ""; return 1; }
+	current_version="$F2B_MANAGER_VERSION"
+	if [ "$current_version" != "$expected" ]; then
+		kpanel_f2b_manager_emit conflict "$current_version"
+		return 2
+	fi
+	[ "$F2B_MANAGER_ENABLED" = true ] || { kpanel_f2b_manager_error "SSH jail 未运行"; kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+	bantime="$F2B_MANAGER_BANTIME"; findtime="$F2B_MANAGER_FINDTIME"; maxretry="$F2B_MANAGER_MAXRETRY"
+	trusted=("${F2B_MANAGER_TRUSTED[@]}")
+	case "$action" in
+		set-profile)
+			read -r bantime findtime maxretry <<< "$(kpanel_f2b_manager_profile_values "$value")" || return 2
+			[ "$F2B_MANAGER_PROFILE" = "$value" ] || changed=true
+			;;
+		add-trusted)
+			kpanel_f2b_manager_valid_address "$value" || return 2
+			for item in "${trusted[@]}"; do [ "$item" != "$value" ] || { kpanel_f2b_manager_snapshot unchanged; return 0; }; done
+			[ "${#trusted[@]}" -lt 64 ] || { kpanel_f2b_manager_error "信任地址已达到 64 条上限"; return 1; }
+			trusted+=("$value"); changed=true
+			;;
+		remove-trusted)
+			kpanel_f2b_manager_valid_address "$value" || return 2
+			local filtered=()
+			for item in "${trusted[@]}"; do [ "$item" = "$value" ] || filtered+=("$item"); done
+			[ "${#filtered[@]}" -ne "${#trusted[@]}" ] || { kpanel_f2b_manager_snapshot unchanged; return 0; }
+			trusted=("${filtered[@]}"); changed=true
+			;;
+		*) return 2 ;;
+	esac
+	[ "$changed" = true ] || { kpanel_f2b_manager_snapshot unchanged; return 0; }
+	snapshot="$(kpanel_system_resource_tempdir ssh-defense)" || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+	config_file="$(kpanel_f2b_manager_config_file)"
+	if [ -f "$config_file" ] && [ ! -L "$config_file" ]; then
+		printf '%s\n' true > "$snapshot/config.existed"
+		cp -a -- "$config_file" "$snapshot/config" || { rm -rf -- "$snapshot"; return 1; }
+	else
+		printf '%s\n' false > "$snapshot/config.existed"
+	fi
+	kpanel_f2b_manager_write_config "$F2B_MANAGER_JAIL" "$bantime" "$findtime" "$maxretry" "${trusted[@]}" ||
+		kpanel_f2b_manager_config_failure "$snapshot" "无法写入 SSH 防御配置" || return 1
+	fail2ban-client -t >/dev/null 2>&1 || kpanel_f2b_manager_config_failure "$snapshot" "Fail2Ban 配置验证失败" || return 1
+	fail2ban-client reload >/dev/null 2>&1 || kpanel_f2b_manager_config_failure "$snapshot" "Fail2Ban 配置重载失败" || return 1
+	kpanel_f2b_manager_collect || kpanel_f2b_manager_config_failure "$snapshot" "SSH 防御配置回读失败" || return 1
+	[ "$F2B_MANAGER_BANTIME" = "$bantime" ] && [ "$F2B_MANAGER_FINDTIME" = "$findtime" ] && [ "$F2B_MANAGER_MAXRETRY" = "$maxretry" ] ||
+		kpanel_f2b_manager_config_failure "$snapshot" "SSH 防御策略回读不一致" || return 1
+	case "$action" in
+		add-trusted)
+			for item in "${F2B_MANAGER_TRUSTED[@]}"; do [ "$item" != "$value" ] || changed=verified; done
+			[ "$changed" = verified ] || kpanel_f2b_manager_config_failure "$snapshot" "SSH 防御信任地址回读不一致" || return 1
+			;;
+		remove-trusted)
+			for item in "${F2B_MANAGER_TRUSTED[@]}"; do
+				[ "$item" != "$value" ] || kpanel_f2b_manager_config_failure "$snapshot" "SSH 防御信任地址仍然生效" || return 1
+			done
+			;;
+	esac
+	rm -rf -- "$snapshot"
+	kpanel_f2b_manager_snapshot applied
+}
+
+kpanel_f2b_manager_unban_action() {
+	local expected="$1" address="${2:-}" current_version item target changed=false
+	local targets=()
+	kpanel_f2b_manager_set_version || { kpanel_f2b_manager_emit failed ""; return 1; }
+	current_version="$F2B_MANAGER_VERSION"
+	[ "$current_version" = "$expected" ] || { kpanel_f2b_manager_emit conflict "$current_version"; return 2; }
+	[ "$F2B_MANAGER_ENABLED" = true ] || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+	if [ -n "$address" ]; then
+		kpanel_f2b_manager_valid_ip "$address" || return 2
+		for item in "${F2B_MANAGER_BANS[@]}"; do
+			[ "$item" = "$address" ] || continue
+			fail2ban-client set "$F2B_MANAGER_JAIL" unbanip --report-absent "$address" >/dev/null 2>&1 || {
+				kpanel_f2b_manager_emit needs-attention "$current_version"
+				return 1
+			}
+			targets+=("$address")
+			changed=true
+		done
+	else
+		for item in "${F2B_MANAGER_BANS[@]}"; do
+			fail2ban-client set "$F2B_MANAGER_JAIL" unbanip --report-absent "$item" >/dev/null 2>&1 || {
+				kpanel_f2b_manager_emit needs-attention "$current_version"
+				return 1
+			}
+			targets+=("$item")
+			changed=true
+		done
+	fi
+	if [ "$changed" = true ]; then
+		kpanel_f2b_manager_collect || { kpanel_f2b_manager_emit needs-attention "$current_version"; return 1; }
+		for target in "${targets[@]}"; do
+			for item in "${F2B_MANAGER_BANS[@]}"; do
+				[ "$item" != "$target" ] || {
+					kpanel_f2b_manager_error "SSH 封禁解除后回读不一致"
+					kpanel_f2b_manager_emit needs-attention "$current_version"
+					return 1
+				}
+			done
+		done
+	fi
+	kpanel_f2b_manager_snapshot "$([ "$changed" = true ] && printf applied || printf unchanged)"
+}
+
+kpanel_f2b_manager_service_action() {
+	local action="$1" current_version changed=false
+	root_use
+	current_version="$(kpanel_f2b_manager_current_version 2>/dev/null || true)"
+	case "$action" in
+		enable)
+			if kpanel_f2b_enabled && kpanel_f2b_autostart; then kpanel_f2b_manager_snapshot unchanged; return 0; fi
+			f2b_install_sshd >/dev/null || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+			kpanel_f2b_enabled || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+			changed=true
+			;;
+		disable)
+			if ! command -v fail2ban-client >/dev/null 2>&1; then kpanel_f2b_manager_snapshot unchanged; return 0; fi
+			if command -v apk >/dev/null 2>&1; then
+				service fail2ban stop >/dev/null 2>&1 || true
+				rc-update del fail2ban default >/dev/null 2>&1 || true
+			else
+				/bin/systemctl disable --now fail2ban.service >/dev/null 2>&1 || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+			fi
+			fail2ban-client ping >/dev/null 2>&1 && { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+			changed=true
+			;;
+		uninstall)
+			if ! command -v fail2ban-client >/dev/null 2>&1; then kpanel_f2b_manager_snapshot unchanged; return 0; fi
+			remove fail2ban >/dev/null 2>&1 || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+			rm -rf -- "${KPANEL_F2B_TEST_ROOT:-}/etc/fail2ban" || { kpanel_f2b_manager_emit failed "$current_version"; return 1; }
+			changed=true
+			;;
+		*) return 2 ;;
+	esac
+	kpanel_f2b_manager_snapshot "$([ "$changed" = true ] && printf applied || printf unchanged)"
+}
+
+kpanel_f2b_manager_run_locked() (
+	local action="$1"
+	shift
+	case "$action" in
+		set-profile|add-trusted|remove-trusted) kpanel_f2b_manager_config_action "$action" "$@" ;;
+		unban) kpanel_f2b_manager_unban_action "$@" ;;
+		unban-all) kpanel_f2b_manager_unban_action "$1" ;;
+		enable|disable|uninstall) kpanel_f2b_manager_service_action "$action" ;;
+		*) return 2 ;;
+	esac
+)
+
+kpanel_f2b_manager_dispatch() {
+	local action="${1:-status}" expected value lock_file rc
+	shift || true
+	printf '%s\n' "KPANEL_F2B_MANAGER_PROTOCOL 1"
+	case "$action" in
+		status)
+			[ "$#" -eq 0 ] || return 2
+			kpanel_f2b_manager_snapshot ok
+			;;
+		set-profile)
+			[ "$#" -eq 2 ] && kpanel_system_resource_valid_version "$1" && kpanel_f2b_manager_profile_values "$2" >/dev/null || return 2
+			expected="$1"; value="$2"
+			;;
+		add-trusted|remove-trusted)
+			[ "$#" -eq 2 ] && kpanel_system_resource_valid_version "$1" && kpanel_f2b_manager_valid_address "$2" || return 2
+			expected="$1"; value="$2"
+			;;
+		unban)
+			[ "$#" -eq 2 ] && kpanel_system_resource_valid_version "$1" && kpanel_f2b_manager_valid_ip "$2" || return 2
+			expected="$1"; value="$2"
+			;;
+		unban-all)
+			[ "$#" -eq 1 ] && kpanel_system_resource_valid_version "$1" || return 2
+			expected="$1"
+			;;
+		enable|disable|uninstall)
+			[ "$#" -eq 0 ] || return 2
+			;;
+		*)
+			kpanel_f2b_manager_error "用法: k f2b manager <status|enable|disable|set-profile|unban|unban-all|add-trusted|remove-trusted|uninstall>"
+			return 2
+			;;
+	esac
+	[ "$action" = status ] && return 0
+	lock_file="$(kpanel_system_resource_prepare_lock_file)" || { kpanel_f2b_manager_emit failed ""; return 1; }
+	exec 9<>"$lock_file" || { kpanel_f2b_manager_emit failed ""; return 1; }
+	if ! flock -w 5 9; then kpanel_f2b_manager_emit conflict "$(kpanel_f2b_manager_current_version 2>/dev/null || true)"; return 2; fi
+	case "$action" in
+		set-profile|add-trusted|remove-trusted|unban) kpanel_f2b_manager_run_locked "$action" "$expected" "$value" ;;
+		unban-all) kpanel_f2b_manager_run_locked "$action" "$expected" ;;
+		*) kpanel_f2b_manager_run_locked "$action" ;;
+	esac
+}
+
+KPANEL_SYSTEM_TUNING_PROTOCOL_VERSION="1"
+KPANEL_SYSTEM_TUNING_MIRROR_COMMIT="649e948763042e485e411be540d21c32cface1c1"
+KPANEL_SYSTEM_TUNING_MIRROR_SHA256="2e3b78a460f10ef291f30e3cbf3d3b28a9521d6615364f11b36e4a70ec97d18d"
+KPANEL_SYSTEM_TUNING_NETWORK_COMMIT="e9c3078eb516b05f9df6d2a9294cf3b226ca02bd"
+KPANEL_SYSTEM_TUNING_NETWORK_SHA256="94f86598805b7a8155f444f35a446df4657985ef81b25f96f7799aa465033bbb"
+
+kpanel_system_tuning_error() { printf '错误: %s\n' "$1" >&2; }
+
+kpanel_system_tuning_valid_item() {
+	case "$1" in
+		system-update|system-cleanup|swap-1g|ssh-port-5522|ssh-defense|firewall-open-all|bbr|timezone-shanghai|dns-auto|ipv4-preferred|basic-tools|kernel-auto) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+kpanel_system_tuning_run_command() {
+	(
+		unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+		"$@"
+	)
+}
+
+kpanel_system_tuning_curl() {
+	kpanel_system_tuning_run_command curl --proxy '' --noproxy '*' "$@"
+}
+
+kpanel_system_tuning_download_verified() {
+	local url="$1" expected="$2" output="$3" actual size
+	kpanel_system_tuning_curl --fail --silent --show-error --location --max-time 120 --output "$output" "$url" || return 1
+	[ -f "$output" ] && [ ! -L "$output" ] || return 1
+	size="$(wc -c < "$output" | tr -d '[:space:]')"
+	[[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt 0 ] && [ "$size" -le 1048576 ] || return 1
+	actual="$(sha256sum -- "$output" | awk '{print $1}')"
+	[ "$actual" = "$expected" ]
+}
+
+kpanel_system_tuning_switch_mirror() {
+	local script country url
+	script="$(mktemp /tmp/kejilion-system-tuning-mirror.XXXXXX)" || return 1
+	url="${gh_proxy}raw.githubusercontent.com/SuperManito/LinuxMirrors/${KPANEL_SYSTEM_TUNING_MIRROR_COMMIT}/ChangeMirrors.sh"
+	kpanel_system_tuning_download_verified "$url" "$KPANEL_SYSTEM_TUNING_MIRROR_SHA256" "$script" || { rm -f -- "$script"; return 1; }
+	country="$(kpanel_system_tuning_curl --fail --silent --show-error --max-time 10 https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)"
+	if [ "$country" = CN ]; then
+		kpanel_system_tuning_run_command bash "$script" --source mirrors.huaweicloud.com --protocol https --use-intranet-source false --backup true --upgrade-software false --clean-cache false --ignore-backup-tips --install-epel false --pure-mode
+	elif grep -qi oracle /etc/os-release 2>/dev/null; then
+		kpanel_system_tuning_run_command bash "$script" --source mirrors.xtom.com --protocol https --use-intranet-source false --backup true --upgrade-software false --clean-cache false --ignore-backup-tips --install-epel false --pure-mode
+	else
+		kpanel_system_tuning_run_command bash "$script" --use-official-source true --protocol https --use-intranet-source false --backup true --upgrade-software false --clean-cache false --ignore-backup-tips --install-epel false --pure-mode
+	fi
+	local result=$?
+	rm -f -- "$script"
+	return "$result"
+}
+
+kpanel_system_tuning_kernel_auto() {
+	local script url
+	mkdir -p /etc/sysctl.d /etc/modules-load.d || {
+		kpanel_system_tuning_error "内核参数配置目录无法创建"
+		return 1
+	}
+	script="$(mktemp /tmp/kejilion-system-tuning-network.XXXXXX)" || return 1
+	url="${gh_proxy}raw.githubusercontent.com/kejilion/sh/${KPANEL_SYSTEM_TUNING_NETWORK_COMMIT}/network-optimize.sh"
+	kpanel_system_tuning_download_verified "$url" "$KPANEL_SYSTEM_TUNING_NETWORK_SHA256" "$script" || { rm -f -- "$script"; return 1; }
+	kpanel_system_tuning_run_command bash "$script"
+	local result=$?
+	rm -f -- "$script"
+	return "$result"
+}
+
+kpanel_system_tuning_firewall_open_all() {
+	local version
+	if ! command -v iptables >/dev/null 2>&1 ||
+		! command -v iptables-save >/dev/null 2>&1 ||
+		! command -v iptables-restore >/dev/null 2>&1; then
+		install iptables || {
+			kpanel_system_tuning_error "iptables 兼容工具安装失败"
+			return 1
+		}
+	fi
+	check_crontab_installed || {
+		kpanel_system_tuning_error "iptables 持久化依赖 crontab/crond 不可用"
+		return 1
+	}
+	version="$(kpanel_system_resource_firewall_version)" || return 1
+	kpanel_system_resource_firewall_action open-all "$version" >&2
+}
+
+kpanel_system_tuning_swap_1g_ready() {
+	local swapfile="${1:-/swapfile}" swaps="${2:-/proc/swaps}" fstab="${3:-/etc/fstab}" size
+	[ -f "$swapfile" ] && [ ! -L "$swapfile" ] || return 1
+	size="$(stat -c '%s' -- "$swapfile" 2>/dev/null)"
+	[ "$size" = 1073741824 ] || return 1
+	awk -v path="$swapfile" 'NR > 1 && $1 == path { found=1 } END { exit !found }' "$swaps" 2>/dev/null || return 1
+	awk -v path="$swapfile" '$1 == path && $2 == "swap" { found=1 } END { exit !found }' "$fstab" 2>/dev/null
+}
+
+kpanel_system_tuning_dns_auto() {
+	local country dns1_ipv4 dns2_ipv4 dns1_ipv6 dns2_ipv6
+	local dns=()
+	if ! command -v chattr >/dev/null 2>&1; then
+		install e2fsprogs || {
+			kpanel_system_tuning_error "DNS 依赖 e2fsprogs/chattr 安装失败"
+			return 1
+		}
+	fi
+	country="$(curl --fail --silent --show-error --max-time 10 https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)"
+	if [ "$country" = CN ]; then
+		dns1_ipv4="223.5.5.5"
+		dns2_ipv4="183.60.83.19"
+		dns1_ipv6="2400:3200::1"
+		dns2_ipv6="2400:da00::6666"
+	else
+		dns1_ipv4="1.1.1.1"
+		dns2_ipv4="8.8.8.8"
+		dns1_ipv6="2606:4700:4700::1111"
+		dns2_ipv6="2001:4860:4860::8888"
+	fi
+	ip_address
+	[ -n "$ipv4_address" ] && dns+=("$dns1_ipv4" "$dns2_ipv4")
+	[ -n "$ipv6_address" ] && dns+=("$dns1_ipv6" "$dns2_ipv6")
+	[ "${#dns[@]}" -gt 0 ] || dns=("$dns1_ipv4" "$dns2_ipv4")
+	KJ_DNS_NONINTERACTIVE=1 kpanel_set_dns_noninteractive "${dns[@]}"
+}
+
+kpanel_system_tuning_has_package_manager() {
+	local mode="$1" command_name
+	local commands=(dnf yum apt apk pacman zypper opkg)
+	[ "$mode" = cleanup ] && commands+=(pkg)
+	for command_name in "${commands[@]}"; do
+		command -v "$command_name" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+kpanel_system_tuning_ssh_server_ready() {
+	local config="${KPANEL_SYSTEM_TUNING_SSHD_CONFIG:-/etc/ssh/sshd_config}"
+	[ -f "$config" ] && [ ! -L "$config" ] &&
+		command -v sshd >/dev/null 2>&1 && command -v ss >/dev/null 2>&1
+}
+
+kpanel_system_tuning_prepare_ssh_service() {
+	local run_dir="${KPANEL_SYSTEM_TUNING_SSHD_RUN_DIR:-/run/sshd}"
+	local systemd_dir="${KPANEL_SYSTEM_TUNING_SYSTEMD_DIR:-/run/systemd/system}"
+	local alias_path="${KPANEL_SYSTEM_TUNING_SSHD_UNIT_ALIAS:-/etc/systemd/system/sshd.service}"
+	local fragment systemctl_bin
+	mkdir -p -- "$run_dir" && chmod 0755 "$run_dir" || return 1
+	systemctl_bin="$(type -P systemctl 2>/dev/null || true)"
+	if [ -n "$systemctl_bin" ] && [ -d "$systemd_dir" ]; then
+		if "$systemctl_bin" cat ssh.service >/dev/null 2>&1; then
+			if ! "$systemctl_bin" cat sshd.service >/dev/null 2>&1; then
+				fragment="$("$systemctl_bin" show -p FragmentPath --value ssh.service 2>/dev/null)"
+				case "$fragment" in /lib/systemd/system/*|/usr/lib/systemd/system/*) ;; *) return 1 ;; esac
+				ln -sfn -- "$fragment" "$alias_path" || return 1
+				"$systemctl_bin" daemon-reload || return 1
+			fi
+			if "$systemctl_bin" cat ssh.socket >/dev/null 2>&1; then
+				"$systemctl_bin" disable ssh.socket >/dev/null 2>&1 || return 1
+				"$systemctl_bin" stop ssh.socket >/dev/null 2>&1 || return 1
+				if ! "$systemctl_bin" enable --now ssh.service >/dev/null 2>&1; then
+					"$systemctl_bin" enable --now ssh.socket >/dev/null 2>&1 || true
+					return 1
+				fi
+			else
+				"$systemctl_bin" enable --now ssh.service >/dev/null 2>&1 || return 1
+			fi
+		else
+			"$systemctl_bin" enable --now sshd.service >/dev/null 2>&1 || return 1
+		fi
+	elif command -v rc-service >/dev/null 2>&1; then
+		rc-service sshd start >/dev/null 2>&1 || return 1
+	fi
+}
+
+kpanel_system_tuning_ensure_ssh_server() {
+	local package_name
+	if ! kpanel_system_tuning_ssh_server_ready; then
+		if command -v apt >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 ||
+			command -v yum >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1 ||
+			command -v opkg >/dev/null 2>&1; then
+			package_name=openssh-server
+		elif command -v apk >/dev/null 2>&1 || command -v pacman >/dev/null 2>&1; then
+			package_name=openssh
+		else
+			kpanel_system_tuning_error "当前系统没有受支持的 OpenSSH Server 安装适配器"
+			return 1
+		fi
+		install "$package_name" || {
+			kpanel_system_tuning_error "OpenSSH Server 安装失败"
+			return 1
+		}
+	fi
+	kpanel_system_tuning_ssh_server_ready || {
+		kpanel_system_tuning_error "OpenSSH Server 安装后配置或工具仍不可用"
+		return 1
+	}
+	kpanel_system_tuning_prepare_ssh_service || {
+		kpanel_system_tuning_error "OpenSSH Server 运行环境准备失败"
+		return 1
+	}
+}
+
+kpanel_system_tuning_item_ready() {
+	local item="$1" command_name
+	case "$item" in
+		swap-1g) kpanel_system_tuning_swap_1g_ready ;;
+		ssh-port-5522) sshd -T 2>/dev/null | grep -Eq '^port 5522$' ;;
+		ssh-defense) kpanel_f2b_enabled >/dev/null 2>&1 ;;
+		firewall-open-all) iptables-save 2>/dev/null | awk '$0=="*filter"{f=1;next} f&&$0=="COMMIT"{exit} f&&/^:INPUT /{i=$2} f&&/^:FORWARD /{w=$2} END{exit !(i=="ACCEPT"&&w=="ACCEPT")}' ;;
+		bbr) [ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" = bbr ] && [ "$(sysctl -n net.core.default_qdisc 2>/dev/null)" = fq ] ;;
+		timezone-shanghai) [ "$(timedatectl show -p Timezone --value 2>/dev/null)" = Asia/Shanghai ] ;;
+		ipv4-preferred) grep -Eq '^precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100([[:space:]]|$)' /etc/gai.conf 2>/dev/null ;;
+		basic-tools) for command_name in docker wget sudo tar unzip socat btop nano vim; do command -v "$command_name" >/dev/null 2>&1 || return 1; done ;;
+		kernel-auto) [ -s /etc/sysctl.d/99-network-optimize.conf ] || { [ -s /etc/sysctl.conf ] && grep -q 'net.core.default_qdisc' /etc/sysctl.conf 2>/dev/null; } ;;
+		*) return 1 ;;
+	esac
+}
+
+kpanel_system_tuning_collect() {
+	local canonical item state
+	TUNING_ITEMS=()
+	for item in system-update system-cleanup swap-1g ssh-port-5522 ssh-defense firewall-open-all bbr timezone-shanghai dns-auto ipv4-preferred basic-tools kernel-auto; do
+		state=pending
+		kpanel_system_tuning_item_ready "$item" && state=ready
+		TUNING_ITEMS+=("$item:$state")
+	done
+	canonical="$(mktemp /tmp/kejilion-system-tuning-version.XXXXXX)" || return 1
+	printf '%s\n' "${TUNING_ITEMS[@]}" > "$canonical"
+	TUNING_VERSION="$(sha256sum -- "$canonical" 2>/dev/null | awk '{print $1}')"
+	rm -f -- "$canonical"
+	[[ "$TUNING_VERSION" =~ ^[0-9a-f]{64}$ ]]
+}
+
+kpanel_system_tuning_emit() {
+	local status="$1" selected="${2:-}" item
+	kpanel_system_tuning_collect || { TUNING_VERSION="$(kpanel_system_resource_zero_version)"; TUNING_ITEMS=(); }
+	printf 'KPANEL_SYSTEM_TUNING_STATUS=%s\n' "$status"
+	printf 'KPANEL_SYSTEM_TUNING_VERSION=%s\n' "$TUNING_VERSION"
+	[ -z "$selected" ] || printf 'KPANEL_SYSTEM_TUNING_SELECTED=%s\n' "$selected"
+	for item in "${TUNING_ITEMS[@]}"; do printf 'KPANEL_SYSTEM_TUNING_ITEM=%s\n' "$item"; done
+}
+
+kpanel_system_tuning_run_item() {
+	case "$1" in
+		system-update)
+			kpanel_system_tuning_has_package_manager update || { kpanel_system_tuning_error "当前系统没有受支持的软件包管理器"; return 1; }
+			# 更新源优化保持尽力执行，不因其返回码中断一条龙调优。
+			kpanel_system_tuning_switch_mirror || true
+			kpanel_system_tuning_run_command linux_update || { kpanel_system_tuning_error "系统软件包更新失败"; return 1; }
+			;;
+		system-cleanup)
+			kpanel_system_tuning_has_package_manager cleanup || { kpanel_system_tuning_error "当前系统没有受支持的清理适配器"; return 1; }
+			linux_clean || { kpanel_system_tuning_error "系统清理失败"; return 1; }
+			;;
+		swap-1g) add_swap 1024 ;;
+		ssh-port-5522) kpanel_system_tuning_ensure_ssh_server && KJ_SSH_PORT_NONINTERACTIVE=1 kpanel_ssh_port_noninteractive 5522 ;;
+		ssh-defense) kpanel_f2b_manager_service_action enable && kpanel_f2b_enabled ;;
+		firewall-open-all) kpanel_system_tuning_firewall_open_all ;;
+		bbr) bbr_on ;;
+		timezone-shanghai) set_timedate Asia/Shanghai ;;
+		dns-auto) kpanel_system_tuning_dns_auto ;;
+		ipv4-preferred) prefer_ipv4 ;;
+		basic-tools) install_docker && install wget sudo tar unzip socat btop nano vim ;;
+		kernel-auto) kpanel_system_tuning_kernel_auto ;;
+		*) return 2 ;;
+	esac
+}
+
+kpanel_system_tuning_menu_item() {
+	local item="$1" index="$2" label="$3"
+	echo "------------------------------------------------"
+	if ! kpanel_system_tuning_run_item "$item"; then
+		echo -e "[${gl_hong}FAIL${gl_bai}] ${index}/12. ${label}，一条龙调优已停止"
+		return 1
+	fi
+	case "$item" in system-update|system-cleanup|dns-auto) ;; *)
+		if ! kpanel_system_tuning_item_ready "$item"; then
+			echo -e "[${gl_hong}FAIL${gl_bai}] ${index}/12. ${label}，完成态回读失败，一条龙调优已停止"
+			return 1
+		fi
+	;; esac
+	echo -e "[${gl_lv}OK${gl_bai}] ${index}/12. ${label}"
+}
+
+kpanel_system_tuning_apply_item() {
+	local item="$1" status=applied
+	if kpanel_system_tuning_item_ready "$item"; then
+		status=unchanged
+	elif ! kpanel_system_tuning_run_item "$item" >&2; then
+		kpanel_system_tuning_emit needs-attention "$item"
+		return 1
+	fi
+	case "$item" in system-update|system-cleanup|dns-auto) ;; *)
+		kpanel_system_tuning_item_ready "$item" || { kpanel_system_tuning_emit needs-attention "$item"; return 1; }
+	;; esac
+	kpanel_system_tuning_emit "$status" "$item"
+}
+
+kpanel_system_tuning_dispatch() {
+	local action="${1:-status}" item lock_file
+	shift || true
+	printf '%s\n' "KPANEL_SYSTEM_TUNING_PROTOCOL 1"
+	[ "${KJ_SYSTEM_TUNING_NONINTERACTIVE:-}" = 1 ] || { kpanel_system_tuning_error "KPanel system-tuning 协议环境未启用"; return 2; }
+	[ "$EUID" -eq 0 ] || { kpanel_system_tuning_error "KPanel system-tuning 协议必须以 root 运行"; return 1; }
+	[ "$(uname -s)" = Linux ] || { kpanel_system_tuning_error "KPanel system-tuning 协议仅支持 Linux"; return 1; }
+	case "$action" in
+		status) [ "$#" -eq 0 ] || return 2; kpanel_system_tuning_emit ok; return $? ;;
+		apply-item) [ "$#" -eq 1 ] && kpanel_system_tuning_valid_item "$1" || return 2; item="$1" ;;
+		*) kpanel_system_tuning_error "用法: k kpanel system-tuning <status|apply-item item>"; return 2 ;;
+	esac
+	lock_file="$(kpanel_system_resource_prepare_lock_file)" || { kpanel_system_tuning_emit failed "$item"; return 1; }
+	exec 9<>"$lock_file" || { kpanel_system_tuning_emit failed "$item"; return 1; }
+	if ! flock -w 5 9; then kpanel_system_tuning_emit conflict "$item"; return 2; fi
+	kpanel_system_tuning_apply_item "$item"
 }
 
 f2b_sshd() {
@@ -3455,27 +4896,33 @@ ldnmp_wp() {
   # wordpress
   webname="WordPress"
   yuming="${1:-}"
+  kpanel_web_progress 10 "正在校验 WordPress 域名与现有站点"
   send_stats "安装$webname"
   echo "开始部署 $webname"
   if [ -z "$yuming" ]; then
 	add_yuming
   fi
   repeat_add_yuming
+  kpanel_web_progress 20 "正在准备 kejilion.sh LDNMP 环境"
   ldnmp_install_status
 
 
+  kpanel_web_progress 35 "正在签发并配置站点证书"
   install_ssltls
   certs_status
+  kpanel_web_progress 50 "正在创建 WordPress 数据库与账号"
   add_db
 
+  kpanel_web_progress 60 "正在获取 kejilion.sh WordPress Nginx 配置"
   wget -O /home/web/conf.d/map.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/map.conf
   wget -O /home/web/conf.d/$yuming.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/wordpress.com.conf
   sed -i "s/yuming.com/$yuming/g" /home/web/conf.d/$yuming.conf
   nginx_http_on
 
 
+  kpanel_web_progress 75 "正在获取并配置 kejilion.sh WordPress 源码"
   cd /home/web/html
-  mkdir $yuming
+  prepare_ldnmp_site_root "$yuming" || return 1
   cd $yuming
   wget -O latest.zip ${gh_proxy}github.com/kejilion/Website_source_code/raw/refs/heads/main/wp-latest.zip
   unzip latest.zip
@@ -3489,6 +4936,9 @@ ldnmp_wp() {
   cp /home/web/html/$yuming/wordpress/wp-config-sample.php /home/web/html/$yuming/wordpress/wp-config.php
 
 
+  kpanel_web_progress 90 "正在重启 LDNMP 并核验 WordPress 站点"
+  normalize_ldnmp_site_permissions "$yuming" || return 1
+  chmod 0640 "/home/web/html/$yuming/wordpress/wp-config.php" || return 1
   restart_ldnmp
   nginx_web_on
 
@@ -3503,6 +4953,7 @@ ldnmp_Proxy() {
 	reverseproxy="${2:-}"
 	port="${3:-}"
 
+	kpanel_web_progress 10 "正在校验反向代理域名与上游地址"
 	send_stats "安装$webname"
 	echo "开始部署 $webname"
 	if [ -z "$yuming" ]; then
@@ -3519,12 +4970,15 @@ ldnmp_Proxy() {
 	if [ -z "$port" ]; then
 		read -e -p "请输入你的反代端口: " port
 	fi
+	kpanel_web_progress 25 "正在准备 kejilion.sh Nginx 环境"
 	nginx_install_status
 
 
+	kpanel_web_progress 40 "正在签发并配置反向代理证书"
 	install_ssltls
 	certs_status
 
+	kpanel_web_progress 60 "正在获取 kejilion.sh 反向代理配置"
 	wget -O /home/web/conf.d/map.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/map.conf
 	wget -O /home/web/conf.d/$yuming.conf ${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/reverse-proxy-backend.conf
 
@@ -3545,6 +4999,7 @@ ldnmp_Proxy() {
 
 	update_nginx_listen_port "$yuming" "$access_port"
 
+	kpanel_web_progress 85 "正在校验并重载反向代理配置"
 	nginx_http_on
 	docker exec nginx nginx -s reload
 	nginx_web_on
@@ -4823,6 +6278,338 @@ chattr +i /etc/resolv.conf
 
 }
 
+kpanel_dns_is_ipv4() {
+	local value="$1"
+	local first second third fourth extra octet
+	IFS=. read -r first second third fourth extra <<< "$value"
+	[ -z "$extra" ] || return 1
+	for octet in "$first" "$second" "$third" "$fourth"; do
+		[[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+		[ "$((10#$octet))" -le 255 ] || return 1
+	done
+}
+
+kpanel_dns_is_ipv6() {
+	local value="$1"
+	[ ${#value} -le 45 ] &&
+	[[ "$value" == *:* ]] &&
+	[[ "$value" =~ ^[0-9A-Fa-f:.]+$ ]]
+}
+
+kpanel_dns_wsl_environment() {
+	grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease 2>/dev/null ||
+		uname -r 2>/dev/null | grep -qiE '(microsoft|wsl)'
+}
+
+kpanel_dns_wsl_persist_resolver() {
+	local expected="$1" config="/etc/wsl.conf" state_dir="/etc/kpanel"
+	local state_file="/etc/kpanel/resolv.conf" unit="/etc/systemd/system/kpanel-wsl-resolvconf.service"
+	local desired
+
+	desired="$(mktemp /etc/.wsl.conf.kpanel.XXXXXX)" || return 1
+	if [ -f "$config" ]; then
+		awk '
+			BEGIN { in_network=0; inserted=0 }
+			/^\[network\][[:space:]]*$/ {
+				in_network=1; print
+				if (!inserted) { print "generateResolvConf = false"; inserted=1 }
+				next
+			}
+			/^\[/ { in_network=0; print; next }
+			in_network && /^[[:space:]]*generateResolvConf[[:space:]]*=/ { next }
+			{ print }
+			END { if (!inserted) print "\n[network]\ngenerateResolvConf = false" }
+		' "$config" > "$desired" || { rm -f "$desired"; return 1; }
+	else
+		printf '[network]\ngenerateResolvConf = false\n' > "$desired" || { rm -f "$desired"; return 1; }
+	fi
+	grep -q '^\[boot\][[:space:]]*$' "$desired" ||
+		printf '\n[boot]\nsystemd = true\n' >> "$desired" || { rm -f "$desired"; return 1; }
+	chmod 644 "$desired" && mv -f "$desired" "$config" || { rm -f "$desired"; return 1; }
+	mkdir -p "$state_dir" || return 1
+	printf '%s' "$expected" > "$state_file" || return 1
+	chmod 644 "$state_file" || return 1
+	printf '%s\n' \
+		'[Unit]' \
+		'Description=Restore KPanel managed WSL DNS' \
+		'After=local-fs.target' \
+		'Before=network-pre.target' \
+		'' \
+		'[Service]' \
+		'Type=oneshot' \
+		'ExecStart=/usr/bin/cp -f /etc/kpanel/resolv.conf /etc/resolv.conf' \
+		'' \
+		'[Install]' \
+		'WantedBy=multi-user.target' > "$unit" || return 1
+	chmod 644 "$unit" || return 1
+	mkdir -p /etc/systemd/system/multi-user.target.wants || return 1
+	ln -sfn "$unit" /etc/systemd/system/multi-user.target.wants/kpanel-wsl-resolvconf.service || return 1
+	if systemctl daemon-reload >/dev/null 2>&1; then
+		systemctl enable --now kpanel-wsl-resolvconf.service >/dev/null 2>&1 || return 1
+	fi
+}
+
+kpanel_dns_restore_file() {
+	local target="$1"
+	local backup="$2"
+	local existed="$3"
+	local immutable="$4"
+
+	chattr -i "$target" >/dev/null 2>&1 || true
+	if [ "$existed" = "true" ]; then
+		cp -p "$backup" "$target" || return 1
+	else
+		rm -f "$target" || return 1
+	fi
+	if [ "$immutable" = "true" ]; then
+		chattr +i "$target" >/dev/null 2>&1 || return 1
+	fi
+}
+
+kpanel_dns_write_static() {
+	local target="/etc/resolv.conf"
+	local parent desired backup old_mode old_immutable="false" existed="false" lock_dns="true"
+	local expected="" value
+
+	if [ -L "$target" ]; then
+		target="$(readlink -f "$target")"
+		[ -n "$target" ] || {
+			echo "错误: /etc/resolv.conf 是失效的符号链接"
+			return 1
+		}
+	fi
+	parent="$(dirname "$target")"
+	[ -d "$parent" ] || {
+		echo "错误: DNS 配置目录不存在"
+		return 1
+	}
+	kpanel_dns_wsl_environment && lock_dns="false"
+	if [ "$lock_dns" = "true" ] && ! command -v chattr >/dev/null 2>&1; then
+		kpanel_dns_wsl_environment || {
+			echo "错误: chattr 不可用，无法保持 kejilion.sh DNS 生命周期语义"
+			return 1
+		}
+		lock_dns="false"
+	fi
+
+	desired="$(mktemp "${parent}/.resolv.conf.kpanel.XXXXXX")" || return 1
+	backup="$(mktemp "${parent}/.resolv.conf.backup.XXXXXX")" || {
+		rm -f "$desired"
+		return 1
+	}
+	for value in "$@"; do
+		expected="${expected}nameserver ${value}"$'\n'
+	done
+	if [ "$lock_dns" = "false" ] && ! kpanel_dns_wsl_persist_resolver "$expected"; then
+		rm -f "$desired" "$backup"
+		echo "错误: WSL DNS 持久化配置失败"
+		return 1
+	fi
+	printf '%s' "$expected" > "$desired" || {
+		rm -f "$desired" "$backup"
+		return 1
+	}
+
+	if [ -f "$target" ]; then
+		existed="true"
+		cp -p "$target" "$backup" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+		old_mode="$(stat -c '%a' "$target" 2>/dev/null || printf '644')"
+		chmod "$old_mode" "$desired" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+		chown --reference="$target" "$desired" >/dev/null 2>&1 || true
+		if [ "$lock_dns" = "true" ] && lsattr -d "$target" 2>/dev/null | awk '{print $1}' | grep -q 'i'; then
+			old_immutable="true"
+		fi
+		if [ "$(cat "$target")"$'\n' = "$expected" ]; then
+			if [ "$lock_dns" = "true" ] && ! chattr +i "$target" >/dev/null 2>&1; then
+				if kpanel_dns_wsl_environment; then
+					lock_dns="false"
+				else
+					rm -f "$desired" "$backup"
+					echo "错误: 无法锁定 DNS 配置"
+					return 1
+				fi
+			fi
+			rm -f "$desired" "$backup"
+			echo "KPANEL_DNS_MANAGER resolv.conf"
+			echo "KPANEL_DNS_RESULT unchanged"
+			return 0
+		fi
+		if [ "$lock_dns" = "true" ] && ! chattr -i "$target" >/dev/null 2>&1; then
+			if kpanel_dns_wsl_environment; then
+				lock_dns="false"
+			else
+				rm -f "$desired" "$backup"
+				echo "错误: 无法解除现有 DNS 配置锁定"
+				return 1
+			fi
+		fi
+	else
+		chmod 644 "$desired" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+	fi
+
+	if ! mv -f "$desired" "$target"; then
+		kpanel_dns_restore_file "$target" "$backup" "$existed" "$old_immutable" || {
+			rm -f "$desired" "$backup"
+			echo "错误: DNS 写入失败且回滚失败，需要人工检查"
+			return 1
+		}
+		rm -f "$desired" "$backup"
+		echo "错误: DNS 写入或回读验证失败，已恢复原配置"
+		return 1
+	fi
+	if [ "$lock_dns" = "true" ] && ! chattr +i "$target" >/dev/null 2>&1; then
+		if kpanel_dns_wsl_environment; then
+			lock_dns="false"
+		else
+			kpanel_dns_restore_file "$target" "$backup" "$existed" "$old_immutable" || {
+				rm -f "$desired" "$backup"
+				echo "错误: DNS 写入失败且回滚失败，需要人工检查"
+				return 1
+			}
+			rm -f "$desired" "$backup"
+			echo "错误: DNS 写入或回读验证失败，已恢复原配置"
+			return 1
+		fi
+	fi
+	if [ "$(cat "$target")"$'\n' != "$expected" ]; then
+		kpanel_dns_restore_file "$target" "$backup" "$existed" "$old_immutable" || {
+			rm -f "$desired" "$backup"
+			echo "错误: DNS 写入失败且回滚失败，需要人工检查"
+			return 1
+		}
+		rm -f "$desired" "$backup"
+		echo "错误: DNS 写入或回读验证失败，已恢复原配置"
+		return 1
+	fi
+	rm -f "$backup"
+	echo "KPANEL_DNS_MANAGER resolv.conf"
+	echo "KPANEL_DNS_RESULT applied"
+}
+
+kpanel_dns_write_systemd_resolved() {
+	local config="/etc/systemd/resolved.conf.d/90-kpanel.conf"
+	local parent desired backup existed="false" expected
+
+	command -v systemctl >/dev/null 2>&1 || {
+		echo "错误: systemctl 不可用"
+		return 1
+	}
+	parent="$(dirname "$config")"
+	mkdir -p "$parent" || return 1
+	desired="$(mktemp "${parent}/.90-kpanel.conf.kpanel.XXXXXX")" || return 1
+	backup="$(mktemp "${parent}/.90-kpanel.conf.backup.XXXXXX")" || {
+		rm -f "$desired"
+		return 1
+	}
+	expected="[Resolve]"$'\n'"DNS=$*"$'\n'"FallbackDNS="$'\n'
+	printf '%s' "$expected" > "$desired" || {
+		rm -f "$desired" "$backup"
+		return 1
+	}
+	chmod 644 "$desired" || {
+		rm -f "$desired" "$backup"
+		return 1
+	}
+	if [ -f "$config" ]; then
+		existed="true"
+		cp -p "$config" "$backup" || {
+			rm -f "$desired" "$backup"
+			return 1
+		}
+		if [ "$(cat "$config")"$'\n' = "$expected" ]; then
+			rm -f "$desired" "$backup"
+			echo "KPANEL_DNS_MANAGER systemd-resolved"
+			echo "KPANEL_DNS_RESULT unchanged"
+			return 0
+		fi
+	fi
+	if ! mv -f "$desired" "$config" ||
+		! systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 ||
+		[ "$(cat "$config")"$'\n' != "$expected" ]; then
+		if [ "$existed" = "true" ]; then
+			cp -p "$backup" "$config" || {
+				rm -f "$desired" "$backup"
+				echo "错误: systemd-resolved DNS 回滚失败，需要人工检查"
+				return 1
+			}
+		else
+			rm -f "$config"
+		fi
+		systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 || {
+			rm -f "$desired" "$backup"
+			echo "错误: systemd-resolved DNS 已恢复文件，但服务重载失败，需要人工检查"
+			return 1
+		}
+		rm -f "$desired" "$backup"
+		echo "错误: systemd-resolved DNS 写入或回读验证失败，已恢复原配置"
+		return 1
+	fi
+	rm -f "$backup"
+	echo "KPANEL_DNS_MANAGER systemd-resolved"
+	echo "KPANEL_DNS_RESULT applied"
+}
+
+kpanel_set_dns_noninteractive() {
+	[ "${KJ_DNS_NONINTERACTIVE:-}" = "1" ] || return 2
+	[ "$EUID" -eq 0 ] || {
+		echo "错误: KPanel DNS 协议必须以 root 运行"
+		return 1
+	}
+	[ "$#" -ge 1 ] && [ "$#" -le 4 ] || {
+		echo "错误: DNS 地址数量必须为 1-4 个"
+		return 1
+	}
+
+	local ipv4_count=0 ipv6_count=0 value previous
+	local normalized=()
+	for value in "$@"; do
+		[ -n "$value" ] && [ ${#value} -le 45 ] || {
+			echo "错误: DNS 地址为空或过长"
+			return 1
+		}
+		if kpanel_dns_is_ipv4 "$value"; then
+			ipv4_count=$((ipv4_count + 1))
+			[ "$ipv4_count" -le 2 ] || {
+				echo "错误: IPv4 DNS 地址最多 2 个"
+				return 1
+			}
+		elif kpanel_dns_is_ipv6 "$value"; then
+			ipv6_count=$((ipv6_count + 1))
+			[ "$ipv6_count" -le 2 ] || {
+				echo "错误: IPv6 DNS 地址最多 2 个"
+				return 1
+			}
+		else
+			echo "错误: 无效的 DNS 地址"
+			return 1
+		fi
+		for previous in "${normalized[@]}"; do
+			[ "$previous" = "$value" ] && {
+				echo "错误: DNS 地址不能重复"
+				return 1
+			}
+		done
+		normalized+=("$value")
+	done
+
+	local resolver_target
+	resolver_target="$(readlink /etc/resolv.conf 2>/dev/null || true)"
+	if [[ "${resolver_target,,}" == *systemd/resolve* ]]; then
+		kpanel_dns_write_systemd_resolved "${normalized[@]}"
+	else
+		kpanel_dns_write_static "${normalized[@]}"
+	fi
+}
+
 
 set_dns_ui() {
 root_use
@@ -4918,14 +6705,90 @@ new_ssh_port() {
 
   correct_ssh_config
 
-  restart_ssh
-  open_port $new_port
+  restart_ssh || return 1
+  open_port "$new_port" || return 1
   remove iptables-persistent ufw firewalld iptables-services > /dev/null 2>&1
 
   echo "SSH 端口已修改为: $new_port"
 
   sleep 1
 
+}
+
+
+kpanel_ssh_port_noninteractive() {
+	[ "${KJ_SSH_PORT_NONINTERACTIVE:-}" = "1" ] || return 2
+	[ "$EUID" -eq 0 ] || {
+		echo "错误: KPanel SSH 端口协议必须以 root 运行"
+		return 1
+	}
+	[ "$#" -eq 1 ] || {
+		echo "错误: SSH 端口协议需要一个端口号"
+		return 1
+	}
+
+	local new_port="$1"
+	[[ "$new_port" =~ ^[0-9]{1,5}$ ]] && [ "$new_port" -ge 1 ] && [ "$new_port" -le 65535 ] || {
+		echo "错误: SSH 端口必须为 1-65535"
+		return 1
+	}
+	[ -f /etc/ssh/sshd_config ] && [ ! -L /etc/ssh/sshd_config ] || {
+		echo "错误: 未找到可管理的 OpenSSH 配置"
+		return 1
+	}
+	command -v sshd >/dev/null 2>&1 && command -v ss >/dev/null 2>&1 || {
+		echo "错误: SSH 配置校验或监听检查工具不可用"
+		return 1
+	}
+	sshd -t || {
+		echo "错误: 当前 SSH 配置语法验证失败"
+		return 1
+	}
+
+	local configured_ports
+	configured_ports="$({
+		grep -Eh '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config 2>/dev/null
+		grep -Eh '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config.d/*.conf 2>/dev/null
+	} | awk '{print $2}' | sort -nu)"
+	if [ "$configured_ports" = "$new_port" ]; then
+		echo "KPANEL_SSH_PORT $new_port"
+		echo "KPANEL_SSH_RESULT unchanged"
+		return 0
+	fi
+
+	# 复用现有 SSH 修改主业务；适配层只负责非交互校验和机器可读结果。
+	new_ssh_port "$new_port" || return 1
+	if ! grep -Eq "^[[:space:]]*Port[[:space:]]+${new_port}([[:space:]]|$)" /etc/ssh/sshd_config; then
+		echo "错误: SSH 端口修改后回读验证失败"
+		return 1
+	fi
+	if ! sshd -t; then
+		echo "错误: SSH 配置语法验证失败"
+		return 1
+	fi
+	local listening="false"
+	local attempt
+	for attempt in {1..10}; do
+		if ss -H -ltn 2>/dev/null | awk -v port="${new_port}" '
+			{
+				address=$4
+				sub(/^.*:/, "", address)
+				if (address == port) found=1
+			}
+			END { exit(found ? 0 : 1) }
+		'; then
+			listening="true"
+			break
+		fi
+		sleep 0.2
+	done
+	[ "${listening}" = "true" ] || {
+		echo "错误: SSH 新端口未进入监听状态"
+		return 1
+	}
+
+	echo "KPANEL_SSH_PORT $new_port"
+	echo "KPANEL_SSH_RESULT applied"
 }
 
 
@@ -5595,9 +7458,131 @@ dd_xitong() {
 }
 
 
+kpanel_bbrv3_status() {
+	local architecture os_id codename running_kernel installed_kernel installed=false active=false supported=false
+	local congestion qdisc reboot_required=false reason=""
+	architecture=$(uname -m 2>/dev/null | tr -cd 'A-Za-z0-9._-')
+	running_kernel=$(uname -r 2>/dev/null | tr -cd 'A-Za-z0-9+._-')
+	os_id=""
+	codename=""
+	if [ -r /etc/os-release ]; then
+		os_id=$(. /etc/os-release && printf '%s' "${ID:-}" | tr -cd 'A-Za-z0-9._-')
+		codename=$(. /etc/os-release && printf '%s' "${VERSION_CODENAME:-}" | tr -cd 'A-Za-z0-9._-')
+	fi
+	if command -v lsb_release >/dev/null 2>&1; then
+		codename=$(lsb_release -sc 2>/dev/null | tr -cd 'A-Za-z0-9._-')
+	fi
+	installed_kernel=$(
+		for module_dir in /lib/modules/*xanmod*; do
+			[ -d "$module_dir" ] && basename "$module_dir"
+		done 2>/dev/null | sort -V | tail -n 1 | tr -cd 'A-Za-z0-9+._-'
+	)
+	congestion=$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null | tr -cd 'A-Za-z0-9._-')
+	qdisc=$(cat /proc/sys/net/core/default_qdisc 2>/dev/null | tr -cd 'A-Za-z0-9._-')
+	xanmod_installed && installed=true
+	if printf '%s' "$running_kernel" | grep -qi 'xanmod' &&
+		[ "$congestion" = "bbr" ] && [ "$qdisc" = "fq" ]; then
+		active=true
+	fi
+	if { [ "$architecture" = "x86_64" ] || [ "$architecture" = "amd64" ]; } &&
+		{ [ "$os_id" = "debian" ] || [ "$os_id" = "ubuntu" ]; } &&
+		command -v apt >/dev/null 2>&1 && command -v dpkg-query >/dev/null 2>&1; then
+		case "$codename" in
+			bookworm|trixie|forky|sid|noble|plucky|questing|resolute)
+				supported=true
+				;;
+			*)
+				reason="unsupported_release"
+				;;
+		esac
+	elif [ "$architecture" = "aarch64" ] || [ "$architecture" = "arm64" ]; then
+		reason="arm64_external_installer_untrusted"
+	elif [ "$os_id" != "debian" ] && [ "$os_id" != "ubuntu" ]; then
+		reason="unsupported_distribution"
+	else
+		reason="missing_dependencies"
+	fi
+	if { [ "$installed" = "true" ] && [ -n "$installed_kernel" ] &&
+			[ "$running_kernel" != "$installed_kernel" ]; } ||
+		{ [ "$installed" = "false" ] && printf '%s' "$running_kernel" | grep -qi 'xanmod'; } ||
+		[ -f /var/run/reboot-required ]; then
+		reboot_required=true
+	fi
+	printf 'KPANEL_BBRV3_STATUS {"supported":%s,"installed":%s,"active":%s,"architecture":"%s","os":"%s","codename":"%s","runningKernel":"%s","installedKernel":"%s","congestionControl":"%s","defaultQDisc":"%s","rebootRequired":%s,"reason":"%s"}\n' \
+		"$supported" "$installed" "$active" "$architecture" "$os_id" "$codename" \
+		"$running_kernel" "$installed_kernel" "$congestion" "$qdisc" "$reboot_required" "$reason"
+}
+
+kpanel_bbrv3_dispatch() {
+	local command="${1:-status}" changed=false status_line reboot_required=false
+	printf '%s\n' "KPANEL_BBRV3_PROTOCOL 1"
+	case "$command" in
+		status)
+			kpanel_bbrv3_status
+			;;
+		install|update|uninstall)
+			root_use
+			status_line=$(kpanel_bbrv3_status)
+			if ! printf '%s' "$status_line" | grep -q '"supported":true' &&
+				{ [ "$command" != "uninstall" ] ||
+				  ! printf '%s' "$status_line" | grep -q '"installed":true'; }; then
+				printf '%s\n' "$status_line"
+				echo "当前主机不支持 KPanel BBRv3 受控执行" >&2
+				return 1
+			fi
+			case "$command" in
+				install)
+					if xanmod_installed; then
+						printf '%s' "$status_line" | grep -q '"rebootRequired":true' &&
+							reboot_required=true
+						printf 'KPANEL_BBRV3_RESULT {"action":"install","changed":false,"rebootRequired":%s}\n' \
+							"$reboot_required"
+						printf '%s\n' "$status_line"
+						return 0
+					fi
+					xanmod_install_or_update install || return 1
+					changed=true
+					;;
+				update)
+					xanmod_installed || {
+						echo "尚未安装 XanMod BBRv3 内核，不能执行更新" >&2
+						return 1
+					}
+					xanmod_install_or_update update || return 1
+					changed=true
+					;;
+				uninstall)
+					if ! xanmod_installed; then
+						printf '%s' "$status_line" | grep -q '"rebootRequired":true' &&
+							reboot_required=true
+						printf 'KPANEL_BBRV3_RESULT {"action":"uninstall","changed":false,"rebootRequired":%s}\n' \
+							"$reboot_required"
+						printf '%s\n' "$status_line"
+						return 0
+					fi
+					xanmod_uninstall || return 1
+					changed=true
+					;;
+			esac
+			status_line=$(kpanel_bbrv3_status)
+			printf '%s' "$status_line" | grep -q '"rebootRequired":true' &&
+				reboot_required=true
+			printf 'KPANEL_BBRV3_RESULT {"action":"%s","changed":%s,"rebootRequired":%s}\n' \
+				"$command" "$changed" "$reboot_required"
+			printf '%s\n' "$status_line"
+			;;
+		*)
+			echo "用法: k bbrv3 [status|install|update|uninstall]" >&2
+			return 2
+			;;
+	esac
+}
+
 bbrv3() {
-		  root_use
-		  send_stats "bbrv3管理"
+		  if [ "${KJ_BBRV3_NONINTERACTIVE:-}" != "1" ]; then
+			  root_use
+			  send_stats "bbrv3管理"
+		  fi
 
 		  xanmod_add_repo() {
 				local keyring="/usr/share/keyrings/xanmod-archive-keyring.gpg"
@@ -5611,12 +7596,12 @@ bbrv3() {
 				elif [ -r /etc/os-release ]; then
 					os_codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
 				fi
-				
+
 				# 兼容官方已移除的老系统代号（回退使用 releases 尝试旧包库）
 				if ! echo "bookworm trixie forky sid noble plucky questing resolute faye gigi wilma xia zara zena" | grep -qw "$os_codename"; then
 					os_codename="releases"
 				fi
-				
+
 				# 官方已彻底移除对 jammy, focal, bullseye 等老系统的 apt 支持
 				if echo "jammy focal bullseye buster" | grep -qw "$os_codename" || [ "$os_codename" = "releases" ]; then
 					echo -e "${gl_hong}XanMod 官方已停止对当前系统($os_codename)的 APT 源支持，请升级至 Debian12 / Ubuntu24 或更高版本。${gl_bai}"
@@ -5726,7 +7711,7 @@ bbrv3() {
 					return 1
 				}
 				echo "XanMod BBRv3内核处理完成。重启后生效"
-				server_reboot
+				[ "${KJ_BBRV3_NONINTERACTIVE:-}" = "1" ] || server_reboot
 		  }
 
 		  xanmod_uninstall() {
@@ -5736,8 +7721,13 @@ bbrv3() {
 				rm -f /etc/apt/sources.list.d/xanmod-release.list
 				rm -f /usr/share/keyrings/xanmod-archive-keyring.gpg
 				echo "XanMod内核已卸载。重启后生效"
-				server_reboot
+				[ "${KJ_BBRV3_NONINTERACTIVE:-}" = "1" ] || server_reboot
 		  }
+
+		  if [ "${KJ_BBRV3_NONINTERACTIVE:-}" = "1" ]; then
+			  kpanel_bbrv3_dispatch "$@"
+			  return
+		  fi
 
 		  local cpu_arch=$(uname -m)
 		  if [ "$cpu_arch" = "aarch64" ]; then
@@ -8685,6 +10675,624 @@ linux_docker() {
 
 
 
+kpanel_node_paths() {
+	KPANEL_NODE_HOME="/usr/local/lib/kejilion-node"
+	KPANEL_NODE_BINARY="${KPANEL_NODE_HOME}/kejilion-node"
+	KPANEL_NODE_UPDATER="${KPANEL_NODE_HOME}/update.sh"
+	KPANEL_NODE_CONFIG_DIR="/etc/kejilion-node"
+	KPANEL_NODE_CONFIG="${KPANEL_NODE_CONFIG_DIR}/node.json"
+	KPANEL_NODE_TERMINAL_CONFIG="${KPANEL_NODE_CONFIG_DIR}/terminal.json"
+	KPANEL_NODE_SYSTEMCTL="$(type -P systemctl 2>/dev/null || true)"
+}
+
+kpanel_node_preflight() {
+	[ "$(id -u)" = "0" ] || {
+		echo "KPanel 轻量节点安装需要 root 权限。" >&2
+		return 1
+	}
+	for command_name in curl sha256sum mktemp; do
+		command -v "$command_name" >/dev/null 2>&1 || {
+			echo "缺少必要命令: ${command_name}" >&2
+			return 1
+		}
+	done
+	[ -n "$KPANEL_NODE_SYSTEMCTL" ] && [ -x "$KPANEL_NODE_SYSTEMCTL" ] || {
+		echo "缺少必要命令: systemctl" >&2
+		return 1
+	}
+	KPANEL_NODE_INSTALL_BIN="$(type -P install 2>/dev/null || true)"
+	[ -n "$KPANEL_NODE_INSTALL_BIN" ] && [ -x "$KPANEL_NODE_INSTALL_BIN" ] || {
+		echo "缺少必要命令: install (coreutils)" >&2
+		return 1
+	}
+	if ! command -v useradd >/dev/null 2>&1 &&
+		! command -v systemd-sysusers >/dev/null 2>&1 &&
+		! command -v adduser >/dev/null 2>&1; then
+		echo "缺少系统账户创建工具: useradd、systemd-sysusers 或 adduser" >&2
+		return 1
+	fi
+	[ -d /run/systemd/system ] || {
+		echo "当前系统未运行 systemd，无法安装 KPanel 轻量节点。" >&2
+		return 1
+	}
+	case "$(uname -m)" in
+		x86_64|amd64) KPANEL_NODE_ARCH="amd64" ;;
+		aarch64|arm64) KPANEL_NODE_ARCH="arm64" ;;
+		*)
+			echo "当前 CPU 架构暂不支持 KPanel 轻量节点。" >&2
+			return 1
+			;;
+	esac
+}
+
+kpanel_node_ensure_account() {
+	local nologin_shell="/usr/sbin/nologin" sysusers_config=""
+	if id kejilion-node >/dev/null 2>&1; then
+		[ "$(id -gn kejilion-node 2>/dev/null)" = "kejilion-node" ] || {
+			echo "现有 kejilion-node 账户的主组不安全，拒绝继续。" >&2
+			return 1
+		}
+		return 0
+	fi
+	[ -x "$nologin_shell" ] || nologin_shell="/sbin/nologin"
+	[ -x "$nologin_shell" ] || nologin_shell="/bin/false"
+
+	if command -v useradd >/dev/null 2>&1; then
+		useradd --system --no-create-home --home-dir /nonexistent --shell "$nologin_shell" kejilion-node || return 1
+	elif command -v systemd-sysusers >/dev/null 2>&1; then
+		sysusers_config="$(mktemp /tmp/kejilion-node-sysusers.XXXXXX)" || return 1
+		printf 'u kejilion-node - "KPanel Lightweight Monitoring Node" /nonexistent %s\n' "$nologin_shell" >"$sysusers_config"
+		if ! systemd-sysusers "$sysusers_config"; then
+			rm -f -- "$sysusers_config"
+			return 1
+		fi
+		rm -f -- "$sysusers_config"
+	elif adduser --help 2>&1 | grep -q -- '--system'; then
+		adduser --system --group --no-create-home --home /nonexistent --shell "$nologin_shell" kejilion-node || return 1
+	else
+		command -v addgroup >/dev/null 2>&1 || {
+			echo "缺少系统组创建工具: addgroup" >&2
+			return 1
+		}
+		addgroup -S kejilion-node >/dev/null 2>&1 || true
+		adduser -S -D -H -h /nonexistent -s "$nologin_shell" -G kejilion-node kejilion-node || return 1
+	fi
+
+	id kejilion-node >/dev/null 2>&1 && [ "$(id -gn kejilion-node 2>/dev/null)" = "kejilion-node" ] || {
+		echo "KPanel 轻量节点低权限账户创建失败。" >&2
+		return 1
+	}
+}
+
+kpanel_node_write_updater() {
+	"$KPANEL_NODE_INSTALL_BIN" -d -o root -g root -m 0755 "$KPANEL_NODE_HOME" || return 1
+	cat >"$KPANEL_NODE_UPDATER" <<'KPANEL_NODE_UPDATE'
+#!/bin/bash
+set -euo pipefail
+
+mode="${1:-update}"
+case "$mode" in
+	install|update) ;;
+	*) echo "unsupported update mode" >&2; exit 2 ;;
+esac
+
+case "$(uname -m)" in
+	x86_64|amd64) arch="amd64" ;;
+	aarch64|arm64) arch="arm64" ;;
+	*) echo "unsupported CPU architecture" >&2; exit 1 ;;
+esac
+
+home_dir="/usr/local/lib/kejilion-node"
+binary_name="kejilion-node-linux-${arch}"
+binary_path="${home_dir}/kejilion-node"
+base_url="https://github.com/kejilion/KPanel/releases/latest/download"
+lock_dir="/run/lock/kejilion-node-update.lock"
+
+if ! mkdir "$lock_dir" 2>/dev/null; then
+	echo "another KPanel lightweight node update is running" >&2
+	exit 1
+fi
+temporary_dir="$(mktemp -d /tmp/kejilion-node-update.XXXXXX)"
+cleanup() {
+	rm -rf -- "$temporary_dir"
+	rmdir "$lock_dir" 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+	--connect-timeout 15 --max-time 180 \
+	-o "${temporary_dir}/${binary_name}" "${base_url}/${binary_name}"
+curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+	--connect-timeout 15 --max-time 60 \
+	-o "${temporary_dir}/SHA256SUMS" "${base_url}/SHA256SUMS"
+
+expected="$(awk -v name="$binary_name" '$2 == name { print $1 }' "${temporary_dir}/SHA256SUMS")"
+printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || {
+	echo "release checksum is unavailable" >&2
+	exit 1
+}
+actual="$(sha256sum "${temporary_dir}/${binary_name}" | awk '{print $1}')"
+[ "$actual" = "$expected" ] || {
+	echo "release checksum verification failed" >&2
+	exit 1
+}
+chmod 0755 "${temporary_dir}/${binary_name}"
+version_output="$("${temporary_dir}/${binary_name}" version)"
+printf '%s\n' "$version_output" | grep -Eq '^[^[:space:]]+ light-v1$' || {
+	echo "release binary protocol is invalid" >&2
+	exit 1
+}
+
+if [ -f "$binary_path" ] && [ "$(sha256sum "$binary_path" | awk '{print $1}')" = "$actual" ]; then
+	echo "KPanel lightweight node is already up to date."
+	exit 0
+fi
+
+install -o root -g root -m 0755 "${temporary_dir}/${binary_name}" "${binary_path}.new"
+had_previous=false
+if [ -f "$binary_path" ]; then
+	cp -p -- "$binary_path" "${binary_path}.previous"
+	had_previous=true
+fi
+mv -f -- "${binary_path}.new" "$binary_path"
+
+if [ "$mode" = "update" ] && systemctl cat kejilion-node.service >/dev/null 2>&1; then
+	has_terminal_broker=false
+	if systemctl cat kejilion-node-terminal.service >/dev/null 2>&1 && [ -f /etc/kejilion-node/terminal.json ]; then
+		has_terminal_broker=true
+	fi
+	if { [ "$has_terminal_broker" != "true" ] || systemctl restart kejilion-node-terminal.service; } &&
+		systemctl restart kejilion-node.service && systemctl is-active --quiet kejilion-node.service &&
+		{ [ "$has_terminal_broker" != "true" ] || systemctl is-active --quiet kejilion-node-terminal.service; }; then
+		:
+	else
+		if [ "$had_previous" = "true" ] && [ -f "${binary_path}.previous" ]; then
+			mv -f -- "${binary_path}.previous" "$binary_path"
+			[ "$has_terminal_broker" != "true" ] || systemctl restart kejilion-node-terminal.service || true
+			systemctl restart kejilion-node.service || true
+		fi
+		echo "KPanel lightweight node update failed and was rolled back." >&2
+		exit 1
+	fi
+fi
+rm -f -- "${binary_path}.previous"
+echo "KPanel lightweight node update completed."
+KPANEL_NODE_UPDATE
+	chmod 0755 "$KPANEL_NODE_UPDATER"
+}
+
+kpanel_node_write_units() {
+	cat >/etc/systemd/system/kejilion-node.service <<'KPANEL_NODE_SERVICE'
+[Unit]
+Description=KPanel Lightweight Monitoring Node
+Wants=kejilion-node-terminal.service
+After=kejilion-node-terminal.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kejilion-node
+Group=kejilion-node
+ExecStart=/usr/local/lib/kejilion-node/kejilion-node run --config /etc/kejilion-node/node.json
+Restart=on-failure
+RestartSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+KPANEL_NODE_SERVICE
+
+	cat >/etc/systemd/system/kejilion-node-terminal.service <<'KPANEL_NODE_TERMINAL_SERVICE'
+[Unit]
+Description=KPanel Lightweight Node Root PTY Broker
+ConditionPathExists=/etc/kejilion-node/terminal.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/lib/kejilion-node/kejilion-node terminal-broker --config /etc/kejilion-node/node.json --terminal-config /etc/kejilion-node/terminal.json
+Restart=on-failure
+RestartSec=5s
+PrivateTmp=true
+PrivateDevices=false
+ProtectSystem=false
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+NoNewPrivileges=false
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+KPANEL_NODE_TERMINAL_SERVICE
+
+	cat >/etc/systemd/system/kejilion-node-update.service <<'KPANEL_NODE_UPDATE_SERVICE'
+[Unit]
+Description=Update KPanel Lightweight Monitoring Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/kejilion-node/update.sh update
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+UMask=0077
+KPANEL_NODE_UPDATE_SERVICE
+
+	cat >/etc/systemd/system/kejilion-node-update.timer <<'KPANEL_NODE_UPDATE_TIMER'
+[Unit]
+Description=Check KPanel Lightweight Monitoring Node Updates
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=24h
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+KPANEL_NODE_UPDATE_TIMER
+	chmod 0644 /etc/systemd/system/kejilion-node.service \
+		/etc/systemd/system/kejilion-node-terminal.service \
+		/etc/systemd/system/kejilion-node-update.service \
+		/etc/systemd/system/kejilion-node-update.timer
+}
+
+kpanel_node_cleanup_failed_join() {
+	if [ -x "$KPANEL_NODE_SYSTEMCTL" ]; then
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node-terminal.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node-update.timer >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node-terminal.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node-update.timer >/dev/null 2>&1 || true
+	fi
+	rm -f -- /etc/systemd/system/kejilion-node.service \
+		/etc/systemd/system/kejilion-node-terminal.service \
+		/etc/systemd/system/kejilion-node-update.service \
+		/etc/systemd/system/kejilion-node-update.timer
+	rm -rf -- "$KPANEL_NODE_HOME" "$KPANEL_NODE_CONFIG_DIR"
+	[ ! -x "$KPANEL_NODE_SYSTEMCTL" ] || "$KPANEL_NODE_SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
+}
+
+kpanel_node_activate() {
+	"$KPANEL_NODE_SYSTEMCTL" daemon-reload &&
+		"$KPANEL_NODE_SYSTEMCTL" enable kejilion-node-terminal.service &&
+		"$KPANEL_NODE_SYSTEMCTL" enable kejilion-node.service &&
+		"$KPANEL_NODE_SYSTEMCTL" enable kejilion-node-update.timer &&
+		{ "$KPANEL_NODE_SYSTEMCTL" start kejilion-node-terminal.service || echo "KPanel 轻量节点终端 broker 启动失败；遥测服务仍将继续。" >&2; } &&
+		"$KPANEL_NODE_SYSTEMCTL" start kejilion-node.service &&
+		"$KPANEL_NODE_SYSTEMCTL" start kejilion-node-update.timer &&
+		{ "$KPANEL_NODE_SYSTEMCTL" is-active kejilion-node-terminal.service >/dev/null || echo "KPanel 轻量节点终端 broker 当前不可用；遥测服务仍在运行。" >&2; } &&
+		"$KPANEL_NODE_SYSTEMCTL" is-active kejilion-node.service >/dev/null
+}
+
+kpanel_node_join() {
+	local token="${1:-}" node_name resume_enrollment=false
+	kpanel_node_paths
+	kpanel_node_preflight || return 1
+	case "$token" in
+		kpl1.*) ;;
+		*) echo "轻量节点接入授权无效。" >&2; return 2 ;;
+	esac
+	[ "${#token}" -le 2048 ] || {
+		echo "轻量节点接入授权无效。" >&2
+		return 2
+	}
+	if [ -e "$KPANEL_NODE_CONFIG" ]; then
+		if [ -f "$KPANEL_NODE_CONFIG" ] && [ ! -L "$KPANEL_NODE_CONFIG" ] && [ -x "$KPANEL_NODE_BINARY" ]; then
+			resume_enrollment=true
+			echo "检测到已完成的节点授权，继续启用本机服务。"
+		else
+			echo "本机存在不完整的 KPanel 节点配置；请先执行 k kpanel node uninstall。" >&2
+			return 1
+		fi
+	fi
+	kpanel_node_ensure_account || return 1
+	"$KPANEL_NODE_INSTALL_BIN" -d -o root -g kejilion-node -m 0750 "$KPANEL_NODE_CONFIG_DIR" || return 1
+	if ! kpanel_node_write_updater || ! "$KPANEL_NODE_UPDATER" install; then
+		[ "$resume_enrollment" = "true" ] || kpanel_node_cleanup_failed_join
+		return 1
+	fi
+	if [ "$resume_enrollment" != "true" ]; then
+		node_name="$(hostname 2>/dev/null | LC_ALL=C tr -cd '[:alnum:]_. -' | cut -c1-80)"
+		if ! "$KPANEL_NODE_BINARY" enroll --token "$token" --name "$node_name" --config "$KPANEL_NODE_CONFIG"; then
+			kpanel_node_cleanup_failed_join
+			return 1
+		fi
+	fi
+	chown root:kejilion-node "$KPANEL_NODE_CONFIG" || {
+		echo "节点授权已保存，但配置权限修复失败；再次执行接入命令可继续。" >&2
+		return 1
+	}
+	chmod 0640 "$KPANEL_NODE_CONFIG"
+	if [ -e "$KPANEL_NODE_TERMINAL_CONFIG" ] || [ -L "$KPANEL_NODE_TERMINAL_CONFIG" ]; then
+		[ -f "$KPANEL_NODE_TERMINAL_CONFIG" ] && [ ! -L "$KPANEL_NODE_TERMINAL_CONFIG" ] || {
+			echo "终端身份配置不是普通文件，拒绝继续。" >&2
+			return 1
+		}
+		chown root:root "$KPANEL_NODE_TERMINAL_CONFIG" || return 1
+		chmod 0600 "$KPANEL_NODE_TERMINAL_CONFIG" || return 1
+	fi
+	if ! kpanel_node_write_units; then
+		echo "节点授权已保存，但 systemd 单元写入失败；再次执行接入命令可继续。" >&2
+		return 1
+	fi
+	if ! kpanel_node_activate; then
+		echo "KPanel 轻量节点授权已保存，但服务启动失败；修复 systemd 后再次执行接入命令即可续装。" >&2
+		return 1
+	fi
+	echo "KPanel 轻量节点已接入，后续将自动更新。"
+}
+
+kpanel_node_status() {
+	kpanel_node_paths
+	[ -x "$KPANEL_NODE_BINARY" ] || {
+		echo "KPanel 轻量节点未安装。" >&2
+		return 1
+	}
+	"$KPANEL_NODE_BINARY" version
+	"$KPANEL_NODE_SYSTEMCTL" --no-pager --full status kejilion-node.service
+}
+
+kpanel_node_update() {
+	kpanel_node_paths
+	kpanel_node_preflight || return 1
+	[ -x "$KPANEL_NODE_UPDATER" ] || {
+		echo "KPanel 轻量节点未安装。" >&2
+		return 1
+	}
+	"$KPANEL_NODE_UPDATER" update || return 1
+	kpanel_node_write_units || return 1
+	kpanel_node_activate
+}
+
+kpanel_node_uninstall() {
+	kpanel_node_paths
+	[ "$(id -u)" = "0" ] || {
+		echo "卸载 KPanel 轻量节点需要 root 权限。" >&2
+		return 1
+	}
+	if [ -x "$KPANEL_NODE_SYSTEMCTL" ]; then
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node-terminal.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" stop kejilion-node-update.timer >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node-terminal.service >/dev/null 2>&1 || true
+		"$KPANEL_NODE_SYSTEMCTL" disable kejilion-node-update.timer >/dev/null 2>&1 || true
+	fi
+	rm -f -- /etc/systemd/system/kejilion-node.service \
+		/etc/systemd/system/kejilion-node-terminal.service \
+		/etc/systemd/system/kejilion-node-update.service \
+		/etc/systemd/system/kejilion-node-update.timer
+	rm -rf -- "$KPANEL_NODE_HOME" "$KPANEL_NODE_CONFIG_DIR"
+	[ ! -x "$KPANEL_NODE_SYSTEMCTL" ] || "$KPANEL_NODE_SYSTEMCTL" daemon-reload >/dev/null 2>&1 || true
+	echo "KPanel 轻量节点已从本机卸载；中心端的离线记录需在集群页面删除。"
+}
+
+kpanel_node_dispatch() {
+	local action="${1:-}"
+	shift || true
+	case "$action" in
+		join) kpanel_node_join "$@" ;;
+		status) kpanel_node_status ;;
+		update) kpanel_node_update ;;
+		uninstall|remove) kpanel_node_uninstall ;;
+		*)
+			echo "用法: k kpanel node join <授权> | status | update | uninstall" >&2
+			return 2
+			;;
+	esac
+}
+
+kpanel_test_catalog() {
+	cat <<'KPANEL_TEST_CATALOG'
+KPANEL_TEST_CATEGORY	access	IP 与解锁
+KPANEL_TEST_CATEGORY	network	网络线路
+KPANEL_TEST_CATEGORY	hardware	硬件性能
+KPANEL_TEST_CATEGORY	comprehensive	综合评测
+KPANEL_TEST_ITEM	chatgpt	access	ChatGPT 解锁检测	检测当前出口 IP 的 ChatGPT 可用性	https://cdn.jsdelivr.net/gh/missuo/OpenAI-Checker/openai.sh	2	light
+KPANEL_TEST_ITEM	region	access	Region 流媒体解锁	检测常见流媒体服务的地区解锁状态	https://check.unlock.media	5	network
+KPANEL_TEST_ITEM	media	access	yeahwu 流媒体检测	检测常见流媒体与 AI 服务的可用区域	https://github.com/yeahwu/check/raw/main/check.sh	5	network
+KPANEL_TEST_ITEM	ip-quality	access	IP 质量体检	检测 IP 风险、信誉、邮件与流媒体质量	https://IP.Check.Place	8	network
+KPANEL_TEST_ITEM	besttrace	network	BestTrace 三网回程	检测三网回程延迟和路由	https://git.io/besttrace	8	network
+KPANEL_TEST_ITEM	mtr	network	MTR 三网回程	使用 MTR 检测三网回程线路	https://github.com/zhucaidan/mtr_trace/raw/main/mtr_trace.sh	8	network
+KPANEL_TEST_ITEM	superspeed	network	SuperSpeed 三网测速	执行国内三网节点带宽测试	https://git.io/superspeed_uxh	15	intensive
+KPANEL_TEST_ITEM	nxtrace-fast	network	NextTrace 快速回程	执行 TCP 快速回程路由测试	https://nxtrace.org/nt	8	network
+KPANEL_TEST_ITEM	backtrace	network	三网线路测试	检测电信、联通和移动回程线路	https://github.com/ludashi2020/backtrace/raw/main/install.sh	8	network
+KPANEL_TEST_ITEM	speedtest	network	多功能测速	运行 i-abc 多节点网络测速	https://github.com/i-abc/Speedtest/raw/main/speedtest.sh	15	intensive
+KPANEL_TEST_ITEM	net-quality	network	网络质量体检	检测延迟、抖动、丢包和网络质量	https://Net.Check.Place	10	network
+KPANEL_TEST_ITEM	tcp-quality	network	TCP 重传探测	检测 TCP 重传和连接质量	https://raw.githubusercontent.com/ibsgss/TcpQuality/main/runTcpQuality.sh	10	network
+KPANEL_TEST_ITEM	yabs	hardware	YABS 性能测试	测试 CPU、磁盘与网络；无 Swap 时按脚本创建 1 GiB /swapfile	https://yabs.sh	30	intensive
+KPANEL_TEST_ITEM	cpu	hardware	CPU 性能测试	运行 Geekbench 5；无 Swap 时按脚本创建 1 GiB /swapfile	https://raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh	30	intensive
+KPANEL_TEST_ITEM	bench	comprehensive	Bench 综合测试	输出系统信息、磁盘与网络综合结果	https://bench.sh	15	intensive
+KPANEL_TEST_ITEM	ecs	comprehensive	融合怪综合测评	运行 spiritLHLS ECS 综合性能与质量测评	https://github.com/spiritLHLS/ecs/raw/main/ecs.sh	45	intensive
+KPANEL_TEST_ITEM	nodequality	comprehensive	NodeQuality 综合测评	运行 NodeQuality 节点质量综合测试	https://run.NodeQuality.com	30	intensive
+KPANEL_TEST_CATALOG
+}
+
+kpanel_run_remote_bash() {
+	local source_url="${1:-}"
+	shift || true
+	[ -n "$source_url" ] || return 64
+
+	local test_workspace test_script command_status
+	test_workspace="$(mktemp -d)" || return 1
+	test_script="$test_workspace/test.sh"
+	curl -fsSL "$source_url" -o "$test_script"
+	command_status=$?
+	if [ "$command_status" -ne 0 ]; then
+		rm -f "$test_script"
+		rmdir "$test_workspace" 2>/dev/null || true
+		return "$command_status"
+	fi
+	chmod 700 "$test_script"
+	bash "$test_script" "$@"
+	command_status=$?
+	rm -f "$test_script"
+	rmdir "$test_workspace" 2>/dev/null || true
+	return "$command_status"
+}
+
+kpanel_run_test_noninteractive() {
+	[ "${KJ_TEST_NONINTERACTIVE:-}" = "1" ] || return 2
+
+	local action="${1:-list}"
+	local selector="${2:-}"
+	case "$action" in
+		list)
+			[ "$#" -eq 1 ] || {
+				echo "KPANEL_TEST_ERROR list does not accept arguments" >&2
+				return 64
+			}
+			kpanel_test_catalog
+			;;
+		run)
+			[ "$#" -eq 2 ] || {
+				echo "KPANEL_TEST_ERROR run requires one fixed test selector" >&2
+				return 64
+			}
+			echo "KPANEL_TEST_START ${selector}"
+			(
+				set -o pipefail
+				case "$selector" in
+				chatgpt)
+					send_stats "ChatGPT解锁状态检测"
+					kpanel_run_remote_bash https://cdn.jsdelivr.net/gh/missuo/OpenAI-Checker/openai.sh
+					;;
+				region)
+					send_stats "Region流媒体解锁测试"
+					kpanel_run_remote_bash https://check.unlock.media
+					;;
+				media)
+					send_stats "yeahwu流媒体解锁检测"
+					kpanel_run_remote_bash ${gh_proxy}github.com/yeahwu/check/raw/main/check.sh
+					;;
+				ip-quality)
+					send_stats "xykt_IP质量体检脚本"
+					kpanel_run_remote_bash https://IP.Check.Place
+					;;
+				besttrace)
+					send_stats "besttrace三网回程延迟路由测试"
+					kpanel_run_remote_bash https://git.io/besttrace
+					;;
+				mtr)
+					send_stats "mtr_trace三网回程线路测试"
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/zhucaidan/mtr_trace/main/mtr_trace.sh
+					;;
+				superspeed)
+					send_stats "Superspeed三网测速"
+					kpanel_run_remote_bash https://git.io/superspeed_uxh
+					;;
+				nxtrace-fast)
+					send_stats "nxtrace快速回程测试脚本"
+					kpanel_run_remote_bash https://nxtrace.org/nt
+					nexttrace --fast-trace --tcp
+					;;
+				backtrace)
+					send_stats "ludashi2020三网线路测试"
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/ludashi2020/backtrace/main/install.sh
+					;;
+				speedtest)
+					send_stats "i-abc多功能测速脚本"
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/i-abc/Speedtest/main/speedtest.sh
+					;;
+				net-quality)
+					send_stats "网络质量测试脚本"
+					kpanel_run_remote_bash https://Net.Check.Place
+					;;
+				tcp-quality)
+					send_stats "TcpQuality TCP重传探测脚本"
+					kpanel_run_remote_bash https://raw.githubusercontent.com/ibsgss/TcpQuality/main/runTcpQuality.sh
+					;;
+				yabs)
+					send_stats "yabs性能测试"
+					check_swap
+					kpanel_run_remote_bash https://yabs.sh -i -5
+					;;
+				cpu)
+					send_stats "icu/gb5 CPU性能测试脚本"
+					check_swap
+					kpanel_run_remote_bash ${gh_proxy}raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh
+					;;
+				bench)
+					send_stats "bench性能测试"
+					kpanel_run_remote_bash https://bench.sh
+					;;
+				ecs)
+					send_stats "spiritysdx融合怪测评"
+					local test_workspace
+					test_workspace="$(mktemp -d)"
+					(
+						cd "$test_workspace" &&
+						curl -fsSL ${gh_proxy}github.com/spiritLHLS/ecs/raw/main/ecs.sh -o ecs.sh &&
+						chmod +x ecs.sh &&
+						bash ecs.sh
+					)
+					local ecs_status=$?
+					rm -f "$test_workspace/ecs.sh"
+					rmdir "$test_workspace" 2>/dev/null || true
+					[ "$ecs_status" -eq 0 ] || return "$ecs_status"
+					;;
+				nodequality)
+					send_stats "nodequality融合怪测评"
+					kpanel_run_remote_bash https://run.NodeQuality.com
+					;;
+				*)
+					echo "KPANEL_TEST_ERROR unsupported test selector" >&2
+					exit 64
+					;;
+				esac
+			)
+			local command_status=$?
+			if [ "$command_status" -ne 0 ]; then
+				echo "KPANEL_TEST_RESULT failed ${selector}" >&2
+				return "$command_status"
+			fi
+			echo "KPANEL_TEST_RESULT succeeded ${selector}"
+			;;
+		*)
+			echo "KPANEL_TEST_ERROR unsupported action" >&2
+			return 64
+			;;
+	esac
+}
+
+
 linux_test() {
 
 	while true; do
@@ -8832,7 +11440,7 @@ linux_test() {
 			  clear
 			  send_stats "icu/gb5 CPU性能测试脚本"
 			  check_swap
-			  bash <(curl -sL bash.icu/gb5)
+			  bash <(curl -fsSL ${gh_proxy}raw.githubusercontent.com/i-abc/GB5/main/gb5-test.sh)
 			  ;;
 
 		  31)
@@ -9075,9 +11683,577 @@ fix_phpfpm_conf() {
 
 
 
+kpanel_run_web_recipe_cli() {
+	local selector="${1:-}"
+	local domain="${2:-}"
+	if [ "$#" -ne 2 ]; then
+		echo "用法: k <建站命令> <域名>"
+		return 64
+	fi
+	KJ_WEB_NONINTERACTIVE=1
+	KJ_WEB_RECIPE="$selector"
+	KJ_WEB_DOMAIN="$domain"
+	mkdir -p /run/lock
+	local lock_fd rc
+	exec {lock_fd}>/run/lock/kejilion-web-environment.lock
+	if ! flock -n "$lock_fd"; then
+		echo "已有网站或 LDNMP 环境任务正在执行" >&2
+		exec {lock_fd}>&-
+		return 75
+	fi
+	linux_ldnmp
+	rc=$?
+	flock -u "$lock_fd"
+	exec {lock_fd}>&-
+	return "$rc"
+}
+
+kpanel_web_recipe_requires_document_root() {
+	case "${1:-}" in
+		2|3|4|5|6|7|8|9|20|25|26|27|30) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+kpanel_ldnmp_escape() {
+	local value="${1:-}"
+	value=${value//\\/\\\\}; value=${value//\"/\\\"}
+	value=${value//$'\n'/\\n}; value=${value//$'\r'/}
+	printf '%s' "$value"
+}
+
+kpanel_ldnmp_event() {
+	printf 'KPANEL_LDNMP_EVENT {"stage":"%s","progress":%s,"message":"%s"}\n' \
+		"$(kpanel_ldnmp_escape "$1")" "$2" "$(kpanel_ldnmp_escape "$3")"
+}
+
+kpanel_ldnmp_result() {
+	local payload
+	payload=$(printf '{"status":"%s","action":"%s","message":"%s","finishedAt":"%s"}' \
+		"$1" "$2" "$(kpanel_ldnmp_escape "$3")" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')")
+	printf 'KPANEL_LDNMP_RESULT %s\n' "$payload"
+	case "${KJ_LDNMP_RECEIPT:-}" in
+		/var/lib/kejilion-panel/environment-jobs/*.receipt)
+			umask 077
+			printf '%s\n' "$payload" > "${KJ_LDNMP_RECEIPT}.tmp.$$" &&
+				mv -f "${KJ_LDNMP_RECEIPT}.tmp.$$" "$KJ_LDNMP_RECEIPT"
+			;;
+	esac
+}
+
+kpanel_ldnmp_component() {
+	local name="$1" required="$2" exists=false running=false state=absent image="" version="" digest=""
+	if docker inspect "$name" >/dev/null 2>&1; then
+		exists=true
+		state=$(docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null)
+		image=$(docker inspect -f '{{.Config.Image}}' "$name" 2>/dev/null)
+		digest=$(docker image inspect -f '{{index .RepoDigests 0}}' "$image" 2>/dev/null)
+		[ "$state" = running ] && running=true
+		case "$name" in
+			nginx) version=$(docker exec nginx nginx -v 2>&1 | sed -n 's#.*nginx/##p' | head -1) ;;
+			php|php74) version=$(docker exec "$name" php -r 'echo PHP_VERSION;' 2>/dev/null) ;;
+			redis) version=$(docker exec redis redis-server -v 2>/dev/null | sed -n 's/.*v=\([^ ]*\).*/\1/p') ;;
+			mysql)
+				local password
+				password=$(grep -oP 'MYSQL_ROOT_PASSWORD:\s*\K.*' /home/web/docker-compose.yml 2>/dev/null | tr -d '[:space:]')
+				[ -n "$password" ] && version=$(docker exec mysql mysql -u root -p"$password" -Nse 'SELECT VERSION();' 2>/dev/null)
+				;;
+		esac
+	fi
+	printf '{"name":"%s","required":%s,"exists":%s,"running":%s,"state":"%s","image":"%s","version":"%s","repoDigest":"%s","updateStatus":"unknown","updateReason":"Registry 状态仅在更新任务中实时确认"}' \
+		"$name" "$required" "$exists" "$running" "$(kpanel_ldnmp_escape "$state")" \
+		"$(kpanel_ldnmp_escape "$image")" "$(kpanel_ldnmp_escape "$version")" "$(kpanel_ldnmp_escape "$digest")"
+}
+
+ldnmp_environment_status() {
+	local count=0 running=0 state=absent profile=none health=unknown
+	for name in nginx mysql php redis; do
+		docker inspect "$name" >/dev/null 2>&1 && count=$((count + 1))
+		[ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" = true ] && running=$((running + 1))
+	done
+	if [ "$count" -eq 4 ]; then state=installed; profile=full
+	elif [ "$count" -eq 1 ] && docker inspect nginx >/dev/null 2>&1; then state=installed; profile=nginx
+	elif [ "$count" -gt 0 ] || [ -d /home/web ]; then state=partial; profile=custom
+	fi
+	if { [ "$profile" = full ] && [ "$running" -eq 4 ]; } ||
+		{ [ "$profile" = nginx ] && [ "$running" -eq 1 ]; }; then health=healthy
+	elif [ "$state" != absent ]; then health=degraded
+	fi
+
+	local compose=false nginx_ok=false sites=0 databases=0 certificates=0 bytes=0
+	[ -f /home/web/docker-compose.yml ] &&
+		docker compose -f /home/web/docker-compose.yml config -q >/dev/null 2>&1 && compose=true
+	docker exec nginx nginx -t >/dev/null 2>&1 && nginx_ok=true
+	[ -d /home/web/conf.d ] && sites=$(find /home/web/conf.d -maxdepth 1 -type f -name '*.conf' ! -name default.conf ! -name map.conf 2>/dev/null | wc -l)
+	[ -d /home/web/certs ] && certificates=$(find /home/web/certs -maxdepth 1 -type f -name '*_cert.pem' 2>/dev/null | wc -l)
+	if docker inspect mysql >/dev/null 2>&1; then
+		local password
+		password=$(grep -oP 'MYSQL_ROOT_PASSWORD:\s*\K.*' /home/web/docker-compose.yml 2>/dev/null | tr -d '[:space:]')
+		[ -n "$password" ] && databases=$(docker exec mysql mysql -u root -p"$password" -Nse 'SHOW DATABASES;' 2>/dev/null |
+			grep -Ev '^(information_schema|mysql|performance_schema|sys)$' | wc -l)
+	fi
+	[ -d /home/web ] && bytes=$(du -sb /home/web 2>/dev/null | awk '{print $1}')
+	local resource=""
+	command -v sha256sum >/dev/null 2>&1 && resource=$(
+		{ [ -f /home/web/docker-compose.yml ] && sha256sum /home/web/docker-compose.yml
+		  [ -f /home/web/nginx.conf ] && sha256sum /home/web/nginx.conf
+		  docker inspect -f '{{.Id}} {{.Image}} {{.State.Status}}' nginx mysql php php74 redis 2>/dev/null; } |
+			sha256sum | awk '{print $1}'
+	)
+	local fail2ban=false waf=false cloudflare=false ddos=false mode=custom gzip=false brotli=false zstd=false
+	command -v fail2ban-client >/dev/null 2>&1 && fail2ban=true
+	grep -qE '^[[:space:]]*modsecurity on;' /home/web/nginx.conf 2>/dev/null && waf=true
+	[ -f /etc/fail2ban/action.d/cloudflare-docker.conf ] && cloudflare=true
+	iptables -C INPUT -p tcp --syn -j DROP >/dev/null 2>&1 && ddos=true
+	docker exec mysql grep -q 4096M /etc/mysql/conf.d/custom_mysql_config.cnf 2>/dev/null && mode=high
+	[ "$mode" = custom ] && docker exec mysql test -f /etc/mysql/conf.d/custom_mysql_config.cnf >/dev/null 2>&1 && mode=standard
+	grep -qE '^[[:space:]]*gzip[[:space:]]+on;' /home/web/nginx.conf 2>/dev/null && gzip=true
+	grep -qE '^[[:space:]]*brotli[[:space:]]+on;' /home/web/nginx.conf 2>/dev/null && brotli=true
+	grep -qE '^[[:space:]]*zstd[[:space:]]+on;' /home/web/nginx.conf 2>/dev/null && zstd=true
+	local latest=""
+	latest=$(find /home -maxdepth 1 -type f -name 'web_*.tar.gz' -printf '%f\n' 2>/dev/null | sort -r | head -1)
+	local port_conflicts="" separator="" port listener
+	for port in 80 443; do
+		listener=$(ss -ltnp 2>/dev/null | awk -v suffix=":${port}" '$4 ~ suffix"$" {print; exit}')
+		if [ -n "$listener" ]; then
+			port_conflicts="${port_conflicts}${separator}\"$(kpanel_ldnmp_escape "$listener")\""
+			separator=","
+		fi
+	done
+	printf '{"protocolVersion":"1","state":"%s","profile":"%s","health":"%s","webRoot":"/home/web","diskBytes":%s,"siteCount":%s,"databaseCount":%s,"certificateCount":%s,"composeValid":%s,"nginxValid":%s,"resourceVersion":"%s","scriptVersion":"%s","latestBackup":"%s","portConflicts":[%s],"components":[' \
+		"$state" "$profile" "$health" "${bytes:-0}" "${sites:-0}" "${databases:-0}" "${certificates:-0}" \
+		"$compose" "$nginx_ok" "$resource" "$sh_v" "$(kpanel_ldnmp_escape "$latest")" "$port_conflicts"
+	kpanel_ldnmp_component nginx true; printf ','; kpanel_ldnmp_component mysql true; printf ','
+	kpanel_ldnmp_component php true; printf ','; kpanel_ldnmp_component php74 false; printf ','
+	kpanel_ldnmp_component redis true
+	printf '],"protection":{"fail2ban":%s,"waf":%s,"cloudflare":%s,"ddos":%s},"optimization":{"mode":"%s","gzip":%s,"brotli":%s,"zstd":%s},"observedAt":"%s"}\n' \
+		"$fail2ban" "$waf" "$cloudflare" "$ddos" "$mode" "$gzip" "$brotli" "$zstd" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+}
+
+ldnmp_environment_catalog() {
+	printf '%s\n' '{"protocolVersion":"1","installProfiles":[{"id":"full","label":"完整 LDNMP"},{"id":"nginx","label":"仅 Nginx"}],"protectionActions":["fail2ban-install","fail2ban-uninstall","unban-all","waf-on","waf-off","ddos-on","ddos-off","cloudflare-fail2ban","cloudflare-shield"],"optimizationActions":["standard","high","gzip-on","gzip-off","brotli-on","brotli-off","zstd-on","zstd-off"],"updateComponents":[{"id":"nginx","versions":["latest"]},{"id":"mysql","versions":["latest","8.0","8.3","8.4","9.0"]},{"id":"php","versions":["7.4","8.0","8.1","8.2","8.3"]},{"id":"redis","versions":["latest"]},{"id":"all","versions":["latest"]}]}'
+}
+
+ldnmp_environment_install() {
+	local profile="${1:-full}" states
+	kpanel_ldnmp_event preflight 5 "正在检查安装条件"
+	case "$profile" in
+		full) kpanel_ldnmp_event install 15 "正在安装完整 LDNMP"; ldnmp_install_all ;;
+		nginx) kpanel_ldnmp_event install 15 "正在安装 Nginx"; nginx_install_all ;;
+		*) echo "不支持的安装形态" >&2; return 2 ;;
+	esac
+	kpanel_ldnmp_event verify 90 "正在验证环境"
+	docker exec nginx nginx -t >/dev/null 2>&1 || return 1
+	docker compose -f /home/web/docker-compose.yml config -q || return 1
+	if [ "$profile" = full ]; then
+		states=$(docker inspect -f '{{.State.Running}}' nginx mysql php redis 2>/dev/null)
+		[ "$(printf '%s\n' "$states" | sed '/^$/d' | wc -l)" -eq 4 ] || return 1
+		printf '%s\n' "$states" | grep -qv true && return 1
+	fi
+}
+
+ldnmp_protection_action_apply() {
+	local cfuser="" cftoken="" cfzone="" secret_content=""
+	case "$1" in
+		fail2ban-install)
+			f2b_install_sshd
+			mkdir -p /etc/fail2ban/filter.d /etc/fail2ban/jail.d
+			curl -sS -o /etc/fail2ban/filter.d/fail2ban-nginx-cc.conf "${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/fail2ban-nginx-cc.conf"
+			curl -sS -o /etc/fail2ban/jail.d/nginx-docker-cc.conf "${gh_proxy}raw.githubusercontent.com/kejilion/config/main/fail2ban/nginx-docker-cc.conf"
+			sed -i '/cloudflare/d' /etc/fail2ban/jail.d/nginx-docker-cc.conf
+			fail2ban-client reload ;;
+		fail2ban-uninstall) remove fail2ban; rm -rf /etc/fail2ban ;;
+		unban-all) fail2ban-client unban --all ;;
+		waf-on) nginx_waf on ;; waf-off) nginx_waf off ;;
+		ddos-on) enable_ddos_defense ;; ddos-off) disable_ddos_defense ;;
+		cloudflare-fail2ban|cloudflare-shield)
+			case "${KJ_LDNMP_SECRET_FILE:-}" in
+				/var/lib/kejilion-panel/environment-jobs/*.secret) ;;
+				*) echo "Cloudflare 凭据通道无效" >&2; return 2 ;;
+			esac
+			[ -f "$KJ_LDNMP_SECRET_FILE" ] && [ ! -L "$KJ_LDNMP_SECRET_FILE" ] || return 2
+			IFS= read -r cfuser < "$KJ_LDNMP_SECRET_FILE"
+			cftoken=$(sed -n '2p' "$KJ_LDNMP_SECRET_FILE")
+			cfzone=$(sed -n '3p' "$KJ_LDNMP_SECRET_FILE")
+			rm -f -- "$KJ_LDNMP_SECRET_FILE"
+			[ -n "$cfuser" ] && [ -n "$cftoken" ] || return 2
+			if [ "$1" = cloudflare-fail2ban ]; then
+				wget -O /home/web/conf.d/default.conf "${gh_proxy}raw.githubusercontent.com/kejilion/nginx/main/default11.conf"
+				docker exec nginx nginx -s reload
+				mkdir -p /etc/fail2ban/jail.d /etc/fail2ban/action.d
+				curl -sS -o /etc/fail2ban/jail.d/nginx-docker-cc.conf \
+					"${gh_proxy}raw.githubusercontent.com/kejilion/config/main/fail2ban/nginx-docker-cc.conf"
+				curl -sS -o /etc/fail2ban/action.d/cloudflare-docker.conf \
+					"${gh_proxy}raw.githubusercontent.com/kejilion/config/main/fail2ban/cloudflare-docker.conf"
+				secret_content=$(< /etc/fail2ban/action.d/cloudflare-docker.conf)
+				secret_content=${secret_content//kejilion@outlook.com/$cfuser}
+				secret_content=${secret_content//APIKEY00000/$cftoken}
+				printf '%s\n' "$secret_content" > /etc/fail2ban/action.d/cloudflare-docker.conf
+				chmod 600 /etc/fail2ban/action.d/cloudflare-docker.conf
+				f2b_status
+			else
+				[ -n "$cfzone" ] || return 2
+				cd /root || return 1
+				install jq bc
+				check_crontab_installed
+				curl -sS -o CF-Under-Attack.sh "${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/CF-Under-Attack.sh"
+				chmod 700 CF-Under-Attack.sh
+				secret_content=$(< CF-Under-Attack.sh)
+				secret_content=${secret_content//AAAA/$cfuser}
+				secret_content=${secret_content//BBBB/$cftoken}
+				secret_content=${secret_content//CCCC/$cfzone}
+				printf '%s\n' "$secret_content" > CF-Under-Attack.sh
+				local cron_job="*/5 * * * * /root/CF-Under-Attack.sh"
+				(crontab -l 2>/dev/null | grep -Fv "/root/CF-Under-Attack.sh"; echo "$cron_job") | crontab -
+			fi
+			;;
+		*) echo "不支持的防护动作" >&2; return 2 ;;
+	esac
+}
+
+ldnmp_protection_action() {
+	local action="$1" snapshot rc=0 fail2ban_existed=false
+	snapshot=$(mktemp -d /home/.kpanel-ldnmp-protection.XXXXXX) || return 1
+	if [ -d /etc/fail2ban ]; then
+		cp -a /etc/fail2ban "$snapshot/fail2ban"
+		fail2ban_existed=true
+	fi
+	cp -a /home/web/nginx.conf "$snapshot/nginx.conf" 2>/dev/null || true
+	cp -a /home/web/conf.d/default.conf "$snapshot/default.conf" 2>/dev/null || true
+	crontab -l > "$snapshot/crontab" 2>/dev/null || true
+	iptables-save > "$snapshot/iptables.rules" 2>/dev/null || true
+
+	ldnmp_protection_action_apply "$@"
+	rc=$?
+	case "$action" in
+		fail2ban-install|cloudflare-fail2ban)
+			fail2ban-client ping >/dev/null 2>&1 || rc=1
+			;;
+		waf-on|waf-off)
+			docker exec nginx nginx -t >/dev/null 2>&1 || rc=1
+			;;
+		cloudflare-shield)
+			crontab -l 2>/dev/null | grep -Fq "/root/CF-Under-Attack.sh" || rc=1
+			;;
+	esac
+	if [ "$rc" -eq 0 ]; then
+		rm -rf "$snapshot"
+		return 0
+	fi
+
+	kpanel_ldnmp_event rollback 85 "防护配置验证失败，正在恢复原配置"
+	rm -rf /etc/fail2ban
+	[ "$fail2ban_existed" = true ] && cp -a "$snapshot/fail2ban" /etc/fail2ban
+	[ -f "$snapshot/nginx.conf" ] && cp -a "$snapshot/nginx.conf" /home/web/nginx.conf
+	[ -f "$snapshot/default.conf" ] && cp -a "$snapshot/default.conf" /home/web/conf.d/default.conf
+	if [ -s "$snapshot/crontab" ]; then crontab "$snapshot/crontab"; else crontab -r 2>/dev/null; fi
+	[ -s "$snapshot/iptables.rules" ] && iptables-restore < "$snapshot/iptables.rules"
+	docker exec nginx nginx -t >/dev/null 2>&1 && docker exec nginx nginx -s reload >/dev/null 2>&1
+	systemctl restart fail2ban >/dev/null 2>&1 || true
+	rm -rf "$snapshot"
+	return "$rc"
+}
+
+ldnmp_optimization_action() {
+	local action="$1" snapshot rc=0 sysctl_existed=false
+	snapshot=$(mktemp -d /home/.kpanel-ldnmp-optimize.XXXXXX) || return 1
+	cp -a /home/web/nginx.conf "$snapshot/nginx.conf" 2>/dev/null || true
+	docker cp php:/usr/local/etc/php/conf.d/optimized_php.ini "$snapshot/php.ini" 2>/dev/null || true
+	docker cp php:/usr/local/etc/php-fpm.d/www.conf "$snapshot/php-www.conf" 2>/dev/null || true
+	docker cp php74:/usr/local/etc/php/conf.d/optimized_php.ini "$snapshot/php74.ini" 2>/dev/null || true
+	docker cp php74:/usr/local/etc/php-fpm.d/www.conf "$snapshot/php74-www.conf" 2>/dev/null || true
+	docker cp mysql:/etc/mysql/conf.d/custom_mysql_config.cnf "$snapshot/mysql.cnf" 2>/dev/null || true
+	if [ -f /etc/sysctl.d/99-kejilion-optimize.conf ]; then
+		cp -a /etc/sysctl.d/99-kejilion-optimize.conf "$snapshot/sysctl.conf"
+		sysctl_existed=true
+	fi
+	case "$1" in
+		standard) ldnmp_optimization_mode standard ;;
+		high) ldnmp_optimization_mode high ;;
+		gzip-on) nginx_gzip on ;; gzip-off) nginx_gzip off ;;
+		brotli-on) nginx_br on ;; brotli-off) nginx_br off ;;
+		zstd-on) nginx_zstd on ;; zstd-off) nginx_zstd off ;;
+		*) rm -rf "$snapshot"; echo "当前协议不支持该优化动作" >&2; return 2 ;;
+	esac
+	rc=$?
+	docker exec nginx nginx -t >/dev/null 2>&1 || rc=1
+	if [ "$action" = standard ] || [ "$action" = high ]; then
+		local component_states
+		component_states=$(docker inspect -f '{{.State.Running}}' nginx php mysql redis 2>/dev/null)
+		[ "$(printf '%s\n' "$component_states" | sed '/^$/d' | wc -l)" -eq 4 ] || rc=1
+		printf '%s\n' "$component_states" | grep -qv true && rc=1
+	fi
+	if [ "$rc" -eq 0 ]; then
+		rm -rf "$snapshot"
+		return 0
+	fi
+	kpanel_ldnmp_event rollback 85 "优化验证失败，正在恢复原配置"
+	[ -f "$snapshot/nginx.conf" ] && cp -a "$snapshot/nginx.conf" /home/web/nginx.conf
+	[ -f "$snapshot/php.ini" ] && docker cp "$snapshot/php.ini" php:/usr/local/etc/php/conf.d/optimized_php.ini
+	[ -f "$snapshot/php-www.conf" ] && docker cp "$snapshot/php-www.conf" php:/usr/local/etc/php-fpm.d/www.conf
+	[ -f "$snapshot/php74.ini" ] && docker cp "$snapshot/php74.ini" php74:/usr/local/etc/php/conf.d/optimized_php.ini
+	[ -f "$snapshot/php74-www.conf" ] && docker cp "$snapshot/php74-www.conf" php74:/usr/local/etc/php-fpm.d/www.conf
+	[ -f "$snapshot/mysql.cnf" ] && docker cp "$snapshot/mysql.cnf" mysql:/etc/mysql/conf.d/custom_mysql_config.cnf
+	if [ "$sysctl_existed" = true ]; then
+		cp -a "$snapshot/sysctl.conf" /etc/sysctl.d/99-kejilion-optimize.conf
+	else
+		rm -f /etc/sysctl.d/99-kejilion-optimize.conf
+	fi
+	sysctl --system >/dev/null 2>&1
+	cd /home/web && docker compose restart >/dev/null 2>&1
+	rm -rf "$snapshot"
+	return "$rc"
+}
+
+ldnmp_update_action() {
+	local component="$1" version="${2:-latest}" backup_before="${3:-false}" rc
+	if [ "$backup_before" = true ]; then
+		kpanel_ldnmp_event update_backup 5 "正在创建更新前冷备"
+		ldnmp_backup_action || return 1
+	fi
+	case "$component" in
+		nginx) nginx_upgrade ;;
+		redis) cd /home/web && docker compose pull redis && docker compose up -d --force-recreate redis ;;
+		mysql)
+			printf '%s' "$version" | grep -Eq '^(latest|8\.0|8\.3|8\.4|9\.0)$' || return 2
+			cd /home/web || return 1; cp docker-compose.yml docker-compose.yml.kpanel-update
+			sed -E -i "s#image:[[:space:]]*mysql([^[:space:]]*)#image: mysql:${version}#" docker-compose.yml
+			if docker compose pull mysql && docker compose up -d --force-recreate mysql; then
+				rm -f docker-compose.yml.kpanel-update
+				return 0
+			else
+				rc=$?
+			fi
+			mv -f docker-compose.yml.kpanel-update docker-compose.yml
+			docker compose up -d --force-recreate mysql >/dev/null 2>&1 || return 86
+			return "$rc" ;;
+		php)
+			printf '%s' "$version" | grep -Eq '^(7\.4|8\.0|8\.1|8\.2|8\.3)$' || return 2
+			cd /home/web || return 1; cp docker-compose.yml docker-compose.yml.kpanel-update
+			sed -E -i "s#image:[[:space:]]*(kjlion/)?php:fpm-alpine#image: php:${version}-fpm-alpine#" docker-compose.yml
+			if docker compose pull php && docker compose up -d --force-recreate php; then
+				rm -f docker-compose.yml.kpanel-update
+				fix_phpfpm_conf php
+				return 0
+			else
+				rc=$?
+			fi
+			mv -f docker-compose.yml.kpanel-update docker-compose.yml
+			docker compose up -d --force-recreate php >/dev/null 2>&1 || return 86
+			return "$rc" ;;
+		all)
+			cd /home/web || return 1
+			docker compose pull && docker compose up -d --force-recreate || return 86
+			;;
+		*) echo "不支持的更新组件" >&2; return 2 ;;
+	esac
+}
+
+ldnmp_backup_action() {
+	[ -d /home/web ] || return 1
+	local stamp archive tmp checksum source_bytes free_bytes running_services
+	stamp=$(date '+%Y%m%d%H%M%S'); archive="/home/web_${stamp}.tar.gz"; tmp="${archive}.tmp.$$"
+	source_bytes=$(du -sb /home/web 2>/dev/null | awk '{print $1}')
+	free_bytes=$(df -PB1 /home | awk 'NR==2 {print $4}')
+	[ "${source_bytes:-0}" -le $((free_bytes * 8 / 10)) ] || return 1
+	kpanel_ldnmp_event backup_stop 15 "正在短暂停止 LDNMP"
+	cd /home/web || return 1
+	running_services=$(docker compose ps --services --filter status=running 2>/dev/null | tr '\n' ' ')
+	docker compose stop || return 1
+	kpanel_ldnmp_event backup_archive 45 "正在归档 /home/web"
+	if ! tar -C /home -czf "$tmp" web; then
+		[ -n "$running_services" ] && docker compose start $running_services >/dev/null 2>&1
+		rm -f "$tmp"
+		return 1
+	fi
+	chmod 600 "$tmp"; checksum=$(sha256sum "$tmp" | awk '{print $1}'); mv -f "$tmp" "$archive"
+	umask 077
+	printf '{"format":"kejilion-ldnmp-v1","file":"%s","sha256":"%s","createdAt":"%s","scriptVersion":"%s"}\n' \
+		"$(basename "$archive")" "$checksum" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$sh_v" > "${archive}.kpanel.json"
+	kpanel_ldnmp_event backup_start 80 "正在恢复 LDNMP"
+	[ -z "$running_services" ] || docker compose start $running_services
+	printf 'KPANEL_LDNMP_BACKUP %s\n' "$(basename "$archive")"
+}
+
+ldnmp_backup_delete_action() {
+	local name archive
+	name=$(basename "${1:-}")
+	printf '%s' "$name" | grep -Eq '^web_[0-9]{14}\.tar\.gz$' || return 2
+	archive="/home/$name"
+	[ -f "$archive" ] && [ ! -L "$archive" ] || return 1
+	rm -f -- "$archive" "${archive}.kpanel.json"
+}
+
+ldnmp_restore_action() {
+	local name archive stage rollback expected actual entry_count unpacked_bytes free_bytes old_running_services
+	name=$(basename "${1:-}"); printf '%s' "$name" | grep -Eq '^web_[0-9]{14}\.tar\.gz$' || return 2
+	archive="/home/$name"; [ -f "$archive" ] || return 1
+	gzip -t "$archive" || return 1
+	if [ -f "${archive}.kpanel.json" ]; then
+		expected=$(sed -n 's/.*"sha256":"\([a-f0-9]\{64\}\)".*/\1/p' "${archive}.kpanel.json")
+		actual=$(sha256sum "$archive" | awk '{print $1}')
+		[ -n "$expected" ] && [ "$expected" = "$actual" ] || return 1
+	fi
+	kpanel_ldnmp_event restore_scan 15 "正在扫描备份归档"
+	entry_count=$(tar -tzf "$archive" | wc -l)
+	[ "$entry_count" -le 200000 ] || return 1
+	unpacked_bytes=$(tar -tvzf "$archive" | awk '{total += $3} END {printf "%.0f", total}')
+	free_bytes=$(df -PB1 /home | awk 'NR==2 {print $4}')
+	[ "${unpacked_bytes:-0}" -le $((free_bytes * 8 / 10)) ] || return 1
+	tar -tzf "$archive" | grep -Ev '^web(/|$)' | grep -q . && return 1
+	tar -tzf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))' && return 1
+	tar -tvzf "$archive" | awk '$1 ~ /^[lhbcp]/ { exit 0 } END { exit 1 }' && return 1
+	stage=$(mktemp -d /home/.kpanel-ldnmp-restore.XXXXXX) || return 1
+	rollback="/home/.kpanel-ldnmp-rollback.$(date '+%Y%m%d%H%M%S')"
+	kpanel_ldnmp_event restore_extract 35 "正在解压到安全暂存目录"
+	tar -xzf "$archive" -C "$stage" || { rm -rf "$stage"; return 1; }
+	docker compose -f "$stage/web/docker-compose.yml" config -q || { rm -rf "$stage"; return 1; }
+	kpanel_ldnmp_event restore_switch 60 "正在原子切换 /home/web"
+	if [ -d /home/web ]; then
+		cd /home/web || return 1
+		old_running_services=$(docker compose ps --services --filter status=running 2>/dev/null | tr '\n' ' ')
+		docker compose down
+		mv /home/web "$rollback"
+	fi
+	if ! mv "$stage/web" /home/web; then
+		[ -d "$rollback" ] && mv "$rollback" /home/web
+		if [ -d /home/web ] && [ -n "$old_running_services" ]; then
+			cd /home/web && docker compose up -d $old_running_services >/dev/null 2>&1
+		fi
+		return 1
+	fi
+	rm -rf "$stage"; cd /home/web || return 1
+	if docker compose up -d && docker exec nginx nginx -t >/dev/null 2>&1; then rm -rf "$rollback"; return 0; fi
+	docker compose down >/dev/null 2>&1; rm -rf /home/web
+	[ -d "$rollback" ] && mv "$rollback" /home/web
+	cd /home/web || return 1
+	if [ -n "$old_running_services" ]; then
+		docker compose up -d $old_running_services >/dev/null 2>&1 || return 86
+	fi
+	return 1
+}
+
+ldnmp_uninstall_action() {
+	[ "${1:-false}" = true ] && ldnmp_backup_action
+	if [ -d /home/web ]; then
+		cd /home/web || return 1
+		docker compose down --rmi all
+		[ -f docker-compose.phpmyadmin.yml ] && docker compose -f docker-compose.phpmyadmin.yml down --rmi all >/dev/null 2>&1
+		rm -rf /home/web
+	fi
+}
+
+kpanel_ldnmp_run() {
+	local action="$1" function_name="$2"; shift 2
+	mkdir -p /run/lock
+	local lock_fd rc
+	exec {lock_fd}>/run/lock/kejilion-web-environment.lock
+	if ! flock -n "$lock_fd"; then
+		kpanel_ldnmp_result failed "$action" "已有网站或 LDNMP 环境任务正在执行"
+		exec {lock_fd}>&-
+		return 75
+	fi
+	kpanel_ldnmp_event start 1 "LDNMP 环境任务已启动"
+	if "$function_name" "$@"; then
+		kpanel_ldnmp_event complete 100 "LDNMP 环境任务已完成"
+		kpanel_ldnmp_result succeeded "$action" "任务执行成功"
+		rc=0
+	else
+		rc=$?
+		kpanel_ldnmp_event failed 100 "LDNMP 环境任务执行失败"
+		if [ "$rc" -eq 86 ]; then
+			kpanel_ldnmp_result needs_attention "$action" "任务失败且无法确认安全回滚，需要人工处理"
+		else
+			kpanel_ldnmp_result failed "$action" "任务执行失败"
+		fi
+	fi
+	flock -u "$lock_fd"
+	exec {lock_fd}>&-
+	return "$rc"
+}
+
+ldnmp_environment_menu() {
+	while true; do
+		clear
+		echo "LDNMP 环境管理"
+		echo "------------------------"
+		echo "1. 查看环境状态"
+		echo "2. 安装完整 LDNMP"
+		echo "3. 仅安装 Nginx"
+		echo "4. 防护管理"
+		echo "5. 优化管理"
+		echo "6. 更新环境"
+		echo "7. 创建冷备"
+		echo "8. 还原备份"
+		echo "9. 卸载环境"
+		echo "0. 返回"
+		echo "------------------------"
+		read -e -p "请输入你的选择: " choice
+		case "$choice" in
+			1)
+				ldnmp_tato
+				docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null
+				;;
+			2) ldnmp_environment_install full ;;
+			3) ldnmp_environment_install nginx ;;
+			4) web_security ;;
+			5) web_optimization ;;
+			6)
+				read -e -p "更新组件 (nginx/mysql/php/redis/all): " component
+				read -e -p "目标版本（默认 latest）: " version
+				ldnmp_update_action "$component" "${version:-latest}" false
+				;;
+			7) ldnmp_backup_action ;;
+			8)
+				find /home -maxdepth 1 -type f -name 'web_*.tar.gz' -printf '%f\n' 2>/dev/null | sort -r
+				read -e -p "输入要还原的备份文件名: " backup_name
+				ldnmp_restore_action "$backup_name"
+				;;
+			9)
+				read -e -p "输入 DELETE 确认卸载 LDNMP 环境: " confirmation
+				[ "$confirmation" = DELETE ] && ldnmp_uninstall_action true
+				;;
+			0) return 0 ;;
+			*) echo "无效的输入" ;;
+		esac
+		break_end
+	done
+}
+
+kpanel_ldnmp_dispatch() {
+	local command="${1:-}"; shift || true
+	if [ -z "$command" ] && [ "${KJ_LDNMP_NONINTERACTIVE:-0}" != "1" ] &&
+		[ "${KJ_LDNMP_PROTOCOL:-0}" != "1" ]; then
+		ldnmp_environment_menu
+		return
+	fi
+	printf 'KPANEL_LDNMP_PROTOCOL 1\n'
+	case "$command" in
+		status) ldnmp_environment_status ;;
+		catalog) ldnmp_environment_catalog ;;
+		install) kpanel_ldnmp_run install ldnmp_environment_install "$@" ;;
+		protect) kpanel_ldnmp_run protect ldnmp_protection_action "$@" ;;
+		optimize) kpanel_ldnmp_run optimize ldnmp_optimization_action "$@" ;;
+		update) kpanel_ldnmp_run update ldnmp_update_action "$@" ;;
+		backup)
+			if [ "${1:-create}" = delete ]; then
+				shift
+				kpanel_ldnmp_run backup.delete ldnmp_backup_delete_action "$@"
+			else
+				kpanel_ldnmp_run backup.create ldnmp_backup_action "$@"
+			fi
+			;;
+		restore) kpanel_ldnmp_run restore ldnmp_restore_action "$@" ;;
+		uninstall) kpanel_ldnmp_run uninstall ldnmp_uninstall_action "$@" ;;
+		*) echo "不支持的 LDNMP 环境命令" >&2; return 2 ;;
+	esac
+}
+
+
 linux_ldnmp() {
   while true; do
 
+	if [ "${KJ_WEB_NONINTERACTIVE:-0}" != "1" ]; then
 	clear
 	# send_stats "LDNMP建站"
 	echo -e "${gl_huang}LDNMP建站"
@@ -9103,7 +12279,42 @@ linux_ldnmp() {
 	echo -e "${gl_huang}------------------------"
 	echo -e "${gl_huang}0.   ${gl_bai}返回主菜单"
 	echo -e "${gl_huang}------------------------${gl_bai}"
-	read -e -p "请输入你的选择: " sub_choice
+	fi
+	if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
+		sub_choice="${KJ_WEB_RECIPE:-}"
+		case "$sub_choice" in
+			2|3|4|5|6|7|8|9|20|22|23|24|25|26|27|28|30) ;;
+			*)
+				echo "KPANEL_PROGRESS 100 不支持的 KJ_WEB_RECIPE"
+				return 1
+				;;
+		esac
+		if [ -z "${KJ_WEB_DOMAIN:-}" ] || [ ${#KJ_WEB_DOMAIN} -gt 253 ] ||
+			! printf '%s' "$KJ_WEB_DOMAIN" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+			echo "KPANEL_PROGRESS 100 KJ_WEB_DOMAIN 不是有效的域名"
+			return 1
+		fi
+		if [ -e "/home/web/conf.d/${KJ_WEB_DOMAIN}.conf" ] ||
+			[ -e "/home/web/html/${KJ_WEB_DOMAIN}" ]; then
+			echo "KPANEL_PROGRESS 100 域名已存在，拒绝覆盖现有产物"
+			return 1
+		fi
+		if [ "$sub_choice" = "23" ]; then
+			if [ -z "${KJ_WEB_PROXY_HOST:-}" ] ||
+				! printf '%s' "$KJ_WEB_PROXY_HOST" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$'; then
+				echo "KPANEL_PROGRESS 100 KJ_WEB_PROXY_HOST 不是有效的 IP 或主机名"
+				return 1
+			fi
+			if ! printf '%s' "${KJ_WEB_PROXY_PORT:-}" | grep -Eq '^[0-9]{1,5}$' ||
+				[ "$KJ_WEB_PROXY_PORT" -lt 1 ] || [ "$KJ_WEB_PROXY_PORT" -gt 65535 ]; then
+				echo "KPANEL_PROGRESS 100 KJ_WEB_PROXY_PORT 不是有效端口"
+				return 1
+			fi
+		fi
+		echo "KPANEL_PROGRESS 5 正在启动 kejilion.sh 原生一键建站流程"
+	else
+		read -e -p "请输入你的选择: " sub_choice
+	fi
 
 
 	case $sub_choice in
@@ -9112,7 +12323,7 @@ linux_ldnmp() {
 	  ldnmp_install_all
 		;;
 	  2)
-	  ldnmp_wp
+	  ldnmp_wp "${KJ_WEB_DOMAIN:-}"
 		;;
 
 	  3)
@@ -9138,7 +12349,7 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 	  LATEST_URL=$(curl -s https://api.gitee.com/api/v5/repos/Discuz/DiscuzX/releases/latest | grep -o 'https://[^"]*Discuz_X[^"]*SC_UTF8[^"]*\.zip' | head -n 1)
 	  wget -O latest.zip ${LATEST_URL}
@@ -9147,6 +12358,7 @@ linux_ldnmp() {
 	  rm -rf upload readme readme.html utility.html LICENSE qqqun.png
 	  rm latest.zip
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 
@@ -9181,13 +12393,14 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 	  LATEST_VERSION=$(curl -s https://api.github.com/repos/kalcaddle/kodbox/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 	  wget -O latest.zip ${gh_proxy}github.com/kalcaddle/kodbox/archive/refs/tags/${LATEST_VERSION}.zip
 	  unzip -o latest.zip
 	  rm latest.zip
 	  mv /home/web/html/$yuming/kodbox* /home/web/html/$yuming/kodbox
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 	  ldnmp_web_on
@@ -9222,7 +12435,7 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 	  # wget ${gh_proxy}github.com/magicblack/maccms_down/raw/master/maccms10.zip && unzip maccms10.zip && rm maccms10.zip
 	  wget ${gh_proxy}github.com/magicblack/maccms_down/raw/master/maccms10.zip && unzip maccms10.zip && mv maccms10-*/* . && rm -r maccms10-* && rm maccms10.zip
@@ -9231,6 +12444,7 @@ linux_ldnmp() {
 	  cp /home/web/html/$yuming/template/DYXS2/asset/admin/dycms.html /home/web/html/$yuming/application/admin/view/system
 	  mv /home/web/html/$yuming/admin.php /home/web/html/$yuming/vip.php && wget -O /home/web/html/$yuming/application/extra/maccms.php ${gh_proxy}raw.githubusercontent.com/kejilion/Website_source_code/main/maccms.php
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 
@@ -9271,10 +12485,11 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 	  wget ${gh_proxy}github.com/assimon/dujiaoka/releases/download/2.0.6/2.0.6-antibody.tar.gz && tar -zxvf 2.0.6-antibody.tar.gz && rm 2.0.6-antibody.tar.gz
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 
@@ -9327,7 +12542,7 @@ linux_ldnmp() {
 	  docker exec php rm -f /usr/local/etc/php/conf.d/optimized_php.ini
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 
 	  docker exec php sh -c "php -r \"copy('https://getcomposer.org/installer', 'composer-setup.php');\""
@@ -9349,6 +12564,7 @@ linux_ldnmp() {
 	  docker exec php sh -c "cd /var/www/html/$yuming && composer require clarkwinkelmann/flarum-ext-emojionearea"
 
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 
@@ -9386,12 +12602,13 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 	  wget -O latest.zip ${gh_proxy}github.com/typecho/typecho/releases/latest/download/typecho.zip
 	  unzip latest.zip
 	  rm latest.zip
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 
@@ -9429,12 +12646,13 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 	  wget -O latest.zip ${gh_proxy}github.com/linkstackorg/linkstack/releases/latest/download/linkstack.zip
 	  unzip latest.zip
 	  rm latest.zip
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 
 
@@ -9467,7 +12685,7 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 
 	  clear
@@ -9566,6 +12784,7 @@ linux_ldnmp() {
 
 	  docker exec php rm -f /usr/local/etc/php/conf.d/optimized_php.ini
 
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  restart_ldnmp
 	  ldnmp_web_on
 	  prefix="web$(shuf -i 10-99 -n 1)_"
@@ -9613,7 +12832,7 @@ linux_ldnmp() {
 		;;
 
 	  23)
-	  ldnmp_Proxy
+	  ldnmp_Proxy "${KJ_WEB_DOMAIN:-}" "${KJ_WEB_PROXY_HOST:-}" "${KJ_WEB_PROXY_PORT:-}"
 	  find_container_by_host_port "$port"
 	  if [ -z "$docker_name" ]; then
 		close_port "$port"
@@ -9706,14 +12925,14 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 
 	  wget ${gh_proxy}github.com/kejilion/Website_source_code/raw/refs/heads/main/ai_prompt_generator.zip
 	  unzip $(ls -t *.zip | head -n 1)
 	  rm -f $(ls -t *.zip | head -n 1)
 
-	  docker exec nginx chmod -R nginx:nginx /var/www/html
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  docker exec nginx nginx -s reload
 
 	  nginx_web_on
@@ -9748,7 +12967,7 @@ linux_ldnmp() {
 	  nginx_http_on
 
 	  cd /home/web/html
-	  mkdir $yuming
+	  prepare_ldnmp_site_root "$yuming" || return 1
 	  cd $yuming
 
 
@@ -9776,7 +12995,7 @@ linux_ldnmp() {
 	  sed -i "s#root /var/www/html/$yuming/#root $index_lujing#g" /home/web/conf.d/$yuming.conf
 	  sed -i "s#/home/web/#/var/www/#g" /home/web/conf.d/$yuming.conf
 
-	  docker exec nginx chmod -R nginx:nginx /var/www/html
+	  normalize_ldnmp_site_permissions "$yuming" || return 1
 	  docker exec nginx nginx -s reload
 
 	  nginx_web_on
@@ -10078,6 +13297,23 @@ linux_ldnmp() {
 	*)
 		echo "无效的输入!"
 	esac
+	if [ "${KJ_WEB_NONINTERACTIVE:-0}" = "1" ]; then
+		if [ ! -f "/home/web/conf.d/${KJ_WEB_DOMAIN}.conf" ]; then
+			echo "KPANEL_PROGRESS 100 kejilion.sh 建站产物不完整"
+			return 1
+		fi
+		if kpanel_web_recipe_requires_document_root "$sub_choice" &&
+			[ ! -d "/home/web/html/${KJ_WEB_DOMAIN}" ]; then
+			echo "KPANEL_PROGRESS 100 kejilion.sh 建站产物不完整"
+			return 1
+		fi
+		if ! docker exec nginx nginx -t >/dev/null 2>&1; then
+			echo "KPANEL_PROGRESS 100 Nginx 配置校验失败"
+			return 1
+		fi
+		echo "KPANEL_PROGRESS 100 kejilion.sh 原生建站产物已完成"
+		return 0
+	fi
 	break_end
 
   done
@@ -15577,21 +18813,37 @@ openclaw_backup_restore_menu() {
 
 
 
+refresh_apps_catalog() {
+	local apps_dir="$HOME/apps"
+	local apps_remote="${gh_proxy}github.com/kejilion/apps.git"
+
+	install git || return 1
+	if [ -e "$apps_dir" ] && [ ! -d "$apps_dir/.git" ]; then
+		echo -e "${gl_hong}错误: ${gl_bai}${apps_dir} 已存在但不是应用市场 Git 仓库，拒绝覆盖。"
+		return 1
+	fi
+	if [ ! -d "$apps_dir/.git" ]; then
+		timeout 30s git clone --depth=1 "$apps_remote" "$apps_dir" || {
+			echo -e "${gl_hong}应用列表下载失败，拒绝使用不完整配置。${gl_bai}"
+			return 1
+		}
+		return 0
+	fi
+	if ! timeout 30s git -C "$apps_dir" pull --ff-only "$apps_remote" main; then
+		echo -e "${gl_hong}应用列表更新失败，拒绝继续使用可能过期的配置。${gl_bai}"
+		echo "请检查网络或 ${apps_dir} 中的本地修改后重试。"
+		return 1
+	fi
+}
+
 linux_panel() {
 
 local sub_choice="$1"
 
 clear
 cd ~
-install git
 echo -e "${gl_kjlan}正在更新应用列表请稍等……${gl_bai}"
-if [ ! -d apps/.git ]; then
-	timeout 10s git clone ${gh_proxy}github.com/kejilion/apps.git
-else
-	cd apps
-	# git pull origin main > /dev/null 2>&1
-	timeout 10s git pull ${gh_proxy}github.com/kejilion/apps.git main > /dev/null 2>&1
-fi
+refresh_apps_catalog || return 1
 
 while true; do
 
@@ -15679,7 +18931,8 @@ while true; do
 	  echo -e "${gl_kjlan}-------------------------"
 	  echo -e "${gl_kjlan}111. ${color111}多格式文件转换工具                  ${gl_kjlan}112. ${color112}Lucky大内网穿透工具"
 	  echo -e "${gl_kjlan}113. ${color113}Firefox浏览器                       ${gl_kjlan}114. ${color114}OpenClaw机器人管理工具${gl_huang}★${gl_bai}"
-	  echo -e "${gl_kjlan}115. ${color115}Hermes机器人管理工具${gl_huang}★${gl_bai}"
+	  echo -e "${gl_kjlan}115. ${color115}Hermes机器人管理工具${gl_huang}★${gl_bai}               ${gl_kjlan}116. ${color116}DeepSeek Harness管理工具${gl_huang}★${gl_bai}"
+	  echo -e "${gl_kjlan}117. ${color117}99CDN自建CDN管理平台                ${gl_kjlan}118. ${color118}99DNS智能调度服务"
 	  echo -e "${gl_kjlan}-------------------------"
 	  echo -e "${gl_kjlan}第三方应用列表"
   	  echo -e "${gl_kjlan}想要让你的应用出现在这里？查看开发者指南: ${gl_huang}https://dev.kejilion.sh/${gl_bai}"
@@ -18176,8 +21429,6 @@ while true; do
 			  --name komari \
 			  -p ${docker_port}:25774 \
 			  -v /home/docker/komari:/app/data \
-			  -e ADMIN_USERNAME=admin \
-			  -e ADMIN_PASSWORD=1212156 \
 			  -e TZ=Asia/Shanghai \
 			  --restart=always \
 			  ghcr.io/komari-monitor/komari:latest
@@ -18186,7 +21437,7 @@ while true; do
 
 		local docker_describe="轻量级的自托管服务器监控工具"
 		local docker_url="官网介绍: ${gh_https_url}github.com/komari-monitor/komari/tree/main"
-		local docker_use="echo \"默认账号: admin  默认密码: 1212156\""
+		local docker_use=""
 		local docker_passwd=""
 		local app_size="1"
 		docker_app
@@ -19365,6 +22616,66 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 	  	  bash <(curl -sL ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/hermes_manager.sh)
 		  ;;
 
+	  116|deepseek-harness|DeepSeek-Harness|dsh)
+		  bash <(curl -fsSL ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/deepseek_harness_manager.sh)
+		  ;;
+
+	  117|99cdn)
+
+		local app_id="117"
+		local lujing="[ -x /opt/srv-biz/srv-biz ]"
+		local panelname="99CDN"
+		local panelurl="https://www.99cdn.com/"
+
+		panel_app_install() {
+			install curl
+			curl -fsSL https://install.99cdn.com | bash
+		}
+
+		panel_app_manage() {
+			systemctl status srv-biz
+		}
+
+		panel_app_uninstall() {
+			systemctl stop srv-biz 2>/dev/null || true
+			systemctl disable srv-biz 2>/dev/null || true
+			rm -rf -- /opt/srv-biz
+			rm -f -- /etc/systemd/system/srv-biz.service /usr/lib/systemd/system/srv-biz.service
+			/bin/systemctl daemon-reload 2>/dev/null || true
+		}
+
+		install_panel
+
+		  ;;
+
+	  118|99dns)
+
+		local app_id="118"
+		local lujing="[ -x /opt/srv-dns/srv-dns ]"
+		local panelname="99DNS"
+		local panelurl="https://www.99cdn.com/"
+
+		panel_app_install() {
+			install curl
+			curl -fsSL https://install.99cdn.com/dns | bash
+		}
+
+		panel_app_manage() {
+			systemctl status srv-dns
+		}
+
+		panel_app_uninstall() {
+			systemctl stop srv-dns 2>/dev/null || true
+			systemctl disable srv-dns 2>/dev/null || true
+			rm -rf -- /opt/srv-dns
+			rm -f -- /etc/systemd/system/srv-dns.service /usr/lib/systemd/system/srv-dns.service
+			/bin/systemctl daemon-reload 2>/dev/null || true
+		}
+
+		install_panel
+
+		  ;;
+
 	  b)
 	  	clear
 	  	send_stats "全部应用备份"
@@ -19435,15 +22746,7 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 		  kejilion
 		  ;;
 	  *)
-		cd ~
-		install git
-		if [ ! -d apps/.git ]; then
-			timeout 10s git clone ${gh_proxy}github.com/kejilion/apps.git
-		else
-			cd apps
-			# git pull origin main > /dev/null 2>&1
-			timeout 10s git pull ${gh_proxy}github.com/kejilion/apps.git main > /dev/null 2>&1
-		fi
+		refresh_apps_catalog || return 1
 		local custom_app="$HOME/apps/${sub_choice}.conf"
 		if [ -f "$custom_app" ]; then
 			. "$custom_app"
@@ -19452,6 +22755,12 @@ discourse,yunsou,ahhhhfs,nsgame,gying" \
 		fi
 		  ;;
 	esac
+	if [ "${KJ_APP_NONINTERACTIVE:-}" = "1" ]; then
+		return
+	fi
+	if [ "${KJ_APP_INTERACTIVE:-}" = "1" ]; then
+		return
+	fi
 	break_end
 	sub_choice=""
 
@@ -19841,6 +23150,4327 @@ net_menu() {
 	done
 }
 
+
+
+# KPanel system resource protocol start
+KPANEL_SYSTEM_RESOURCE_PROTOCOL_VERSION="3"
+
+kpanel_system_resource_zero_version() {
+	printf '%064d' 0
+}
+
+kpanel_system_resource_emit() {
+	local status="$1"
+	local version="$2"
+	local backup="${3:-}"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || version="$(kpanel_system_resource_zero_version)"
+	printf 'KPANEL_SYSTEM_RESOURCE_STATUS=%s\n' "$status"
+	printf 'KPANEL_SYSTEM_RESOURCE_VERSION=%s\n' "$version"
+	[ -z "$backup" ] || printf 'KPANEL_SYSTEM_RESOURCE_BACKUP=%s\n' "$backup"
+}
+
+kpanel_system_resource_error() {
+	printf '错误: %s\n' "$1" >&2
+}
+
+kpanel_system_resource_valid_version() {
+	[[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+kpanel_system_resource_single_line() {
+	local value="$1"
+	local maximum="$2"
+	local bytes
+	bytes="$(printf '%s' "$value" | wc -c)" || return 1
+	[ "$bytes" -le "$maximum" ] &&
+		[[ "$value" != *$'\n'* ]] &&
+		[[ "$value" != *$'\r'* ]]
+}
+
+kpanel_system_resource_copy_identity() {
+	local source="$1"
+	local target="$2"
+	local mode owner
+	mode="$(stat -c '%a' "$source" 2>/dev/null)" || return 1
+	owner="$(stat -c '%u:%g' "$source" 2>/dev/null)" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+	chown "$owner" "$target" >/dev/null 2>&1 &&
+		chmod "$mode" "$target" >/dev/null 2>&1
+}
+
+kpanel_system_resource_file_within_bounds() {
+	local path="$1"
+	local maximum_bytes="$2"
+	local maximum_lines="$3"
+	local bytes lines
+	bytes="$(wc -c < "$path" 2>/dev/null)" || return 1
+	lines="$(awk 'END {print NR + 0}' "$path" 2>/dev/null)" || return 1
+	[ "$bytes" -le "$maximum_bytes" ] && [ "$lines" -le "$maximum_lines" ]
+}
+
+kpanel_system_resource_hosts_file() {
+	printf '%s\n' "/etc/hosts"
+}
+
+kpanel_system_resource_lock_dir() {
+	printf '%s\n' "/run/kejilion-system-resource"
+}
+
+kpanel_system_resource_lock_owner_uid() {
+	printf '0\n'
+}
+
+kpanel_system_resource_lock_stat_uid() {
+	stat -c '%u' "$1" 2>/dev/null
+}
+
+kpanel_system_resource_lock_stat_mode() {
+	stat -c '%a' "$1" 2>/dev/null
+}
+
+kpanel_system_resource_lock_file() {
+	printf '%s/system-resource.lock\n' "$(kpanel_system_resource_lock_dir)"
+}
+
+kpanel_system_resource_interfaces_dir() {
+	printf '%s\n' "/sys/class/net"
+}
+
+kpanel_system_resource_iptables_rules_file() {
+	printf '%s\n' "/etc/iptables/rules.v4"
+}
+
+kpanel_system_resource_tempdir() {
+	local resource="$1"
+	local directory
+	directory="$(mktemp -d "/tmp/kejilion-system-resource-${resource}.XXXXXX")" || return 1
+	chmod 700 "$directory" || {
+		rm -rf -- "$directory"
+		return 1
+	}
+	printf '%s\n' "$directory"
+}
+
+kpanel_system_resource_state_root() {
+	printf '%s\n' "/var/lib/kejilion-panel"
+}
+
+kpanel_system_resource_path_has_no_symlink() {
+	local path="$1"
+	local remainder current="" component
+	local components=()
+
+	[[ "$path" = /* ]] && [ "$path" != "/" ] || return 1
+	remainder="${path#/}"
+	IFS=/ read -r -a components <<< "$remainder"
+	for component in "${components[@]}"; do
+		[ -n "$component" ] && [ "$component" != "." ] && [ "$component" != ".." ] || return 1
+		current="$current/$component"
+		[ ! -L "$current" ] || return 1
+	done
+}
+
+kpanel_system_resource_lock_path_secure() {
+	local path="$1"
+	local kind="$2"
+	local required_mode="${3:-}"
+	local uid expected_uid mode
+
+	[ ! -L "$path" ] || return 1
+	case "$kind" in
+		directory) [ -d "$path" ] ;;
+		file) [ -f "$path" ] ;;
+		*) return 1 ;;
+	esac || return 1
+	uid="$(kpanel_system_resource_lock_stat_uid "$path")" || return 1
+	expected_uid="$(kpanel_system_resource_lock_owner_uid)" || return 1
+	[[ "$uid" =~ ^[0-9]+$ ]] && [[ "$expected_uid" =~ ^[0-9]+$ ]] &&
+		[ "$uid" = "$expected_uid" ] || return 1
+	mode="$(kpanel_system_resource_lock_stat_mode "$path")" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+	[ "$((8#$mode & 0022))" -eq 0 ] || return 1
+	[ -z "$required_mode" ] || [ "$((8#$mode & 0777))" -eq "$((8#$required_mode))" ]
+}
+
+kpanel_system_resource_prepare_lock_file() {
+	local lock_dir lock_parent lock_file
+
+	lock_dir="$(kpanel_system_resource_lock_dir)" || return 1
+	lock_file="$(kpanel_system_resource_lock_file)" || return 1
+	kpanel_system_resource_single_line "$lock_dir" 1024 || return 1
+	kpanel_system_resource_single_line "$lock_file" 1024 || return 1
+	[[ "$lock_dir" = /* ]] && [ "$lock_file" = "$lock_dir/system-resource.lock" ] || return 1
+	kpanel_system_resource_path_has_no_symlink "$lock_dir" || return 1
+	lock_parent="$(dirname -- "$lock_dir")" || return 1
+	kpanel_system_resource_lock_path_secure "$lock_parent" directory || return 1
+	if [ -e "$lock_dir" ]; then
+		kpanel_system_resource_lock_path_secure "$lock_dir" directory || return 1
+	else
+		(umask 077; mkdir -- "$lock_dir") >/dev/null 2>&1 || return 1
+	fi
+	chown 0:0 "$lock_dir" >/dev/null 2>&1 && chmod 700 "$lock_dir" >/dev/null 2>&1 || return 1
+	kpanel_system_resource_lock_path_secure "$lock_dir" directory 700 || return 1
+	[ ! -L "$lock_file" ] || return 1
+	if [ -e "$lock_file" ]; then
+		kpanel_system_resource_lock_path_secure "$lock_file" file || return 1
+	else
+		(umask 077; set -o noclobber; : > "$lock_file") >/dev/null 2>&1 || {
+			[ -e "$lock_file" ] && [ ! -L "$lock_file" ] || return 1
+		}
+	fi
+	kpanel_system_resource_lock_path_secure "$lock_file" file || return 1
+	chown 0:0 "$lock_file" >/dev/null 2>&1 && chmod 600 "$lock_file" >/dev/null 2>&1 || return 1
+	kpanel_system_resource_lock_path_secure "$lock_file" file 600 || return 1
+	printf '%s\n' "$lock_file"
+}
+
+kpanel_system_resource_secure_directory() {
+	local path="$1"
+	[ ! -L "$path" ] || return 1
+	if [ -e "$path" ]; then
+		[ -d "$path" ] || return 1
+	else
+		mkdir -- "$path" >/dev/null 2>&1 || return 1
+	fi
+	[ -d "$path" ] && [ ! -L "$path" ] || return 1
+	chown 0:0 "$path" >/dev/null 2>&1 && chmod 700 "$path" >/dev/null 2>&1
+}
+
+kpanel_system_resource_prepare_recovery_root() {
+	local state_root path mode
+	state_root="$(kpanel_system_resource_state_root)" || return 1
+	kpanel_system_resource_single_line "$state_root" 1024 || return 1
+	kpanel_system_resource_path_has_no_symlink "$state_root" || return 1
+	if [ -e "$state_root" ]; then
+		[ -d "$state_root" ] && [ ! -L "$state_root" ] || return 1
+	else
+		mkdir -- "$state_root" >/dev/null 2>&1 || return 1
+		chmod 700 "$state_root" >/dev/null 2>&1 || return 1
+	fi
+	chown 0:0 "$state_root" >/dev/null 2>&1 || return 1
+	mode="$(stat -c '%a' "$state_root" 2>/dev/null)" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+	[ "$((8#$mode & 0022))" -eq 0 ] || return 1
+	path="$state_root"
+	for component in system recovery system-resource; do
+		path="$path/$component"
+		kpanel_system_resource_secure_directory "$path" || return 1
+	done
+	printf '%s\n' "$path"
+}
+
+kpanel_system_resource_persist_recovery_snapshot() {
+	local snapshot_dir="$1"
+	local resource="$2"
+	local recovery_root destination timestamp invalid
+
+	[[ "$resource" =~ ^(hosts|cron|firewall|traffic-shutdown|account-management|ssh-defense)$ ]] || return 1
+	[ -d "$snapshot_dir" ] && [ ! -L "$snapshot_dir" ] || return 1
+	invalid="$(find "$snapshot_dir" -mindepth 1 \( -type l -o ! -type f \) -print -quit 2>/dev/null)" || return 1
+	[ -z "$invalid" ] || return 1
+	recovery_root="$(kpanel_system_resource_prepare_recovery_root)" || return 1
+	timestamp="$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)" || return 1
+	[[ "$timestamp" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || return 1
+	destination="$(mktemp -d "$recovery_root/${timestamp}-${resource}.XXXXXX")" || return 1
+	if ! chmod 700 "$destination" >/dev/null 2>&1 ||
+		! cp -a -- "$snapshot_dir/." "$destination/" >/dev/null 2>&1; then
+		rm -rf -- "$destination"
+		return 1
+	fi
+	invalid="$(find "$destination" -mindepth 1 \( -type l -o ! -type f \) -print -quit 2>/dev/null)" || {
+		rm -rf -- "$destination"
+		return 1
+	}
+	if [ -n "$invalid" ] ||
+		! chown -R -- 0:0 "$destination" >/dev/null 2>&1 ||
+		! find "$destination" -type d -exec chmod 700 -- {} + >/dev/null 2>&1 ||
+		! find "$destination" -type f -exec chmod 600 -- {} + >/dev/null 2>&1; then
+		rm -rf -- "$destination"
+		return 1
+	fi
+	rm -rf -- "$snapshot_dir" >/dev/null 2>&1 || true
+	printf '%s\n' "$destination"
+}
+
+kpanel_system_resource_is_ipv4() {
+	local value="$1"
+	local first second third fourth extra octet
+	IFS=. read -r first second third fourth extra <<< "$value"
+	[ -z "$extra" ] || return 1
+	for octet in "$first" "$second" "$third" "$fourth"; do
+		[[ "$octet" =~ ^[0-9]{1,3}$ ]] || return 1
+		[ "$octet" = "0" ] || [[ "$octet" != 0* ]] || return 1
+		[ "$((10#$octet))" -le 255 ] || return 1
+	done
+}
+
+kpanel_system_resource_ipv6_side_count() {
+	local side="$1"
+	local part index count=0
+	local parts=()
+	[ -n "$side" ] || {
+		printf '0\n'
+		return 0
+	}
+	[[ "$side" != :* && "$side" != *: ]] || return 1
+	IFS=: read -r -a parts <<< "$side"
+	for index in "${!parts[@]}"; do
+		part="${parts[$index]}"
+		[ -n "$part" ] || return 1
+		if [[ "$part" == *.* ]]; then
+			[ "$index" -eq "$((${#parts[@]} - 1))" ] || return 1
+			kpanel_system_resource_is_ipv4 "$part" || return 1
+			count=$((count + 2))
+		else
+			[[ "$part" =~ ^[0-9A-Fa-f]{1,4}$ ]] || return 1
+			count=$((count + 1))
+		fi
+	done
+	printf '%s\n' "$count"
+}
+
+kpanel_system_resource_is_ipv6() {
+	local value="$1"
+	local left right left_count right_count total
+	[ -n "$value" ] && [ "${#value}" -le 45 ] &&
+		[[ "$value" == *:* ]] &&
+		[[ "$value" =~ ^[0-9A-Fa-f:.]+$ ]] || return 1
+	if [[ "$value" == *::* ]]; then
+		[[ "${value/::/}" != *::* ]] || return 1
+		left="${value%%::*}"
+		right="${value#*::}"
+		left_count="$(kpanel_system_resource_ipv6_side_count "$left")" || return 1
+		right_count="$(kpanel_system_resource_ipv6_side_count "$right")" || return 1
+		total=$((left_count + right_count))
+		[ "$total" -lt 8 ]
+	else
+		[[ "$value" != :* && "$value" != *: ]] || return 1
+		total="$(kpanel_system_resource_ipv6_side_count "$value")" || return 1
+		[ "$total" -eq 8 ]
+	fi
+}
+
+kpanel_system_resource_is_hostname() {
+	local value="$1"
+	local label
+	local labels=()
+	[ -n "$value" ] && [ "${#value}" -le 253 ] || return 1
+	value="${value%.}"
+	[ -n "$value" ] || return 1
+	IFS=. read -r -a labels <<< "$value"
+	for label in "${labels[@]}"; do
+		[ -n "$label" ] && [ "${#label}" -le 63 ] || return 1
+		[[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || return 1
+	done
+}
+
+kpanel_system_resource_is_ipv4_cidr() {
+	local value="$1"
+	local address prefix
+	if [[ "$value" == */* ]]; then
+		[ "${value//[^\/]/}" = "/" ] || return 1
+		address="${value%/*}"
+		prefix="${value##*/}"
+		[[ "$prefix" =~ ^[0-9]{1,2}$ ]] &&
+			{ [ "$prefix" = "0" ] || [[ "$prefix" != 0* ]]; } &&
+			[ "$((10#$prefix))" -le 32 ] || return 1
+	else
+		address="$value"
+	fi
+	kpanel_system_resource_is_ipv4 "$address"
+}
+
+kpanel_system_resource_hosts_version() {
+	local path
+	path="$(kpanel_system_resource_hosts_file)"
+	[ -f "$path" ] && [ ! -L "$path" ] || return 1
+	sha256sum -- "$path" 2>/dev/null | awk '{print $1}'
+}
+
+kpanel_system_resource_cron_capture() {
+	local target="$1"
+	local error_file="$target.error"
+	local rc=0
+	KPANEL_SYSTEM_RESOURCE_CRON_EXISTED=false
+	LC_ALL=C crontab -l > "$target" 2>"$error_file" || rc=$?
+	if [ "$rc" -eq 0 ]; then
+		KPANEL_SYSTEM_RESOURCE_CRON_EXISTED=true
+	elif grep -Fqi 'no crontab for' "$error_file"; then
+		: > "$target" || {
+			rm -f -- "$error_file"
+			return 1
+		}
+	else
+		rm -f -- "$error_file"
+		return 1
+	fi
+	rm -f -- "$error_file"
+	kpanel_system_resource_file_within_bounds "$target" 262144 512
+}
+
+kpanel_system_resource_cron_version() {
+	local temporary version
+	temporary="$(mktemp /tmp/kejilion-system-resource-cron-version.XXXXXX)" || return 1
+	if ! kpanel_system_resource_cron_capture "$temporary"; then
+		rm -f -- "$temporary"
+		return 1
+	fi
+	version="$(sha256sum -- "$temporary" 2>/dev/null | awk '{print $1}')"
+	rm -f -- "$temporary"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || return 1
+	printf '%s\n' "$version"
+}
+
+kpanel_system_resource_interface_exists() {
+	local name="$1"
+	local root candidate
+	root="$(kpanel_system_resource_interfaces_dir)"
+	[ -d "$root" ] || return 1
+	for candidate in "$root"/*; do
+		[ -e "$candidate" ] || continue
+		[ "$(basename -- "$candidate")" = "$name" ] && return 0
+	done
+	return 1
+}
+
+kpanel_system_resource_interface_version() {
+	local name="$1"
+	local root state mac
+	kpanel_system_resource_interface_exists "$name" || return 1
+	root="$(kpanel_system_resource_interfaces_dir)"
+	state="$(kpanel_system_resource_interface_admin_state "$name")" || return 1
+	mac="$(cat "$root/$name/address" 2>/dev/null)" || return 1
+	printf '%s|%s|%s' "$name" "$state" "$mac" | sha256sum | awk '{print $1}'
+}
+
+kpanel_system_resource_firewall_canonicalize() {
+	local source="$1"
+	local target="$2"
+	local bytes
+
+	[ -f "$source" ] && [ ! -L "$source" ] || return 1
+	bytes="$(wc -c < "$source" 2>/dev/null)" || return 1
+	[ "$bytes" -le 524288 ] || return 1
+	LC_ALL=C awk '
+		{
+			line=$0
+			sub(/\r$/, "", line)
+			if (index(line, "# Generated by iptables-save ") == 1 ||
+				index(line, "# Completed on ") == 1) {
+				next
+			}
+			if (line ~ /^:/) {
+				sub(/ \[[0-9]+:[0-9]+\]$/, " [0:0]", line)
+			}
+			print line
+		}
+	' "$source" > "$target"
+}
+
+kpanel_system_resource_firewall_canonical_equal() {
+	local left="$1"
+	local right="$2"
+	local left_canonical right_canonical result
+
+	left_canonical="$(mktemp /tmp/kejilion-system-resource-firewall-left.XXXXXX)" || return 2
+	right_canonical="$(mktemp /tmp/kejilion-system-resource-firewall-right.XXXXXX)" || {
+		rm -f -- "$left_canonical"
+		return 2
+	}
+	if ! kpanel_system_resource_firewall_canonicalize "$left" "$left_canonical" ||
+		! kpanel_system_resource_firewall_canonicalize "$right" "$right_canonical"; then
+		rm -f -- "$left_canonical" "$right_canonical"
+		return 2
+	fi
+	if cmp -s -- "$left_canonical" "$right_canonical"; then
+		result=0
+	else
+		result=$?
+	fi
+	rm -f -- "$left_canonical" "$right_canonical"
+	case "$result" in
+		0|1) return "$result" ;;
+		*) return 2 ;;
+	esac
+}
+
+kpanel_system_resource_firewall_version() {
+	local raw canonical version
+	raw="$(mktemp /tmp/kejilion-system-resource-firewall-version-raw.XXXXXX)" || return 1
+	canonical="$(mktemp /tmp/kejilion-system-resource-firewall-version-canonical.XXXXXX)" || {
+		rm -f -- "$raw"
+		return 1
+	}
+	if ! kpanel_system_resource_firewall_capture "$raw" ||
+		! kpanel_system_resource_firewall_canonicalize "$raw" "$canonical"; then
+		rm -f -- "$raw" "$canonical"
+		return 1
+	fi
+	version="$(sha256sum -- "$canonical" 2>/dev/null | awk '{print $1}')"
+	rm -f -- "$raw" "$canonical"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || return 1
+	printf '%s\n' "$version"
+}
+
+kpanel_system_resource_firewall_capture() {
+	local target="$1"
+	local bytes
+	iptables-save > "$target" 2>/dev/null || return 1
+	bytes="$(wc -c < "$target" 2>/dev/null)" || return 1
+	[ "$bytes" -le 524288 ]
+}
+
+kpanel_system_resource_best_version() {
+	local resource="$1"
+	local name="${2:-}"
+	local version=""
+	case "$resource" in
+		hosts) version="$(kpanel_system_resource_hosts_version 2>/dev/null || true)" ;;
+		cron) version="$(kpanel_system_resource_cron_version 2>/dev/null || true)" ;;
+		network-interface)
+			[ -z "$name" ] || version="$(kpanel_system_resource_interface_version "$name" 2>/dev/null || true)"
+			;;
+		firewall) version="$(kpanel_system_resource_firewall_version 2>/dev/null || true)" ;;
+	esac
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || version="$(kpanel_system_resource_zero_version)"
+	printf '%s\n' "$version"
+}
+
+kpanel_system_resource_check_expected() {
+	local resource="$1"
+	local expected="$2"
+	local name="${3:-}"
+	local current
+	kpanel_system_resource_valid_version "$expected" || {
+		kpanel_system_resource_error "expectedResourceVersion 必须为 64 位小写十六进制"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version "$resource" "$name")"
+		return 2
+	}
+	case "$resource" in
+		hosts) current="$(kpanel_system_resource_hosts_version 2>/dev/null)" ;;
+		cron) current="$(kpanel_system_resource_cron_version 2>/dev/null)" ;;
+		network-interface) current="$(kpanel_system_resource_interface_version "$name" 2>/dev/null)" ;;
+		firewall) current="$(kpanel_system_resource_firewall_version 2>/dev/null)" ;;
+		*) return 2 ;;
+	esac || {
+		kpanel_system_resource_error "无法读取当前资源版本"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 1
+	}
+	if [ "$current" != "$expected" ]; then
+		kpanel_system_resource_error "资源版本已变化，请刷新后重试"
+		kpanel_system_resource_emit conflict "$current"
+		return 2
+	fi
+	KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION="$current"
+}
+
+kpanel_system_resource_require_platform() {
+	local command_name
+	if [ "${KJ_SYSTEM_RESOURCE_NONINTERACTIVE:-}" != "1" ]; then
+		kpanel_system_resource_error "KPanel system-resource 协议环境未启用"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	fi
+	if [ "$EUID" -ne 0 ]; then
+		kpanel_system_resource_error "KPanel system-resource 协议必须以 root 运行"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	fi
+	if [ "$(uname -s 2>/dev/null)" != "Linux" ]; then
+		kpanel_system_resource_error "KPanel system-resource 协议仅支持 Linux"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	fi
+	for command_name in sha256sum mktemp flock find date; do
+		command -v "$command_name" >/dev/null 2>&1 || {
+			kpanel_system_resource_error "缺少必要命令: $command_name"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+			return 2
+		}
+	done
+}
+
+kpanel_system_resource_hosts_build_line() {
+	local address="$1"
+	local hostnames_csv="$2"
+	local comment="$3"
+	local hostname joined
+	local hostnames=()
+
+	kpanel_system_resource_is_ipv4 "$address" ||
+		kpanel_system_resource_is_ipv6 "$address" || return 1
+	kpanel_system_resource_single_line "$hostnames_csv" 1024 &&
+		[ -n "$hostnames_csv" ] || return 1
+	[[ "$hostnames_csv" != ,* && "$hostnames_csv" != *, && "$hostnames_csv" != *,,* ]] || return 1
+	IFS=, read -r -a hostnames <<< "$hostnames_csv"
+	[ "${#hostnames[@]}" -ge 1 ] && [ "${#hostnames[@]}" -le 16 ] || return 1
+	for hostname in "${hostnames[@]}"; do
+		kpanel_system_resource_is_hostname "$hostname" || return 1
+	done
+	kpanel_system_resource_single_line "$comment" 256 || return 1
+	joined="$(IFS=' '; printf '%s' "${hostnames[*]}")"
+	KPANEL_SYSTEM_RESOURCE_HOSTS_LINE="$address"$'\t'"$joined"
+	[ -z "$comment" ] ||
+		KPANEL_SYSTEM_RESOURCE_HOSTS_LINE="$KPANEL_SYSTEM_RESOURCE_HOSTS_LINE # $comment"
+}
+
+kpanel_system_resource_restore_hosts() {
+	local path="$1"
+	local backup="$2"
+	local expected_version="$3"
+	local current
+	current="$(kpanel_system_resource_hosts_version 2>/dev/null || true)"
+	[ "$current" = "$expected_version" ] && return 0
+	cp -p -- "$backup" "$path" >/dev/null 2>&1 || return 1
+	current="$(kpanel_system_resource_hosts_version 2>/dev/null || true)"
+	[ "$current" = "$expected_version" ]
+}
+
+kpanel_system_resource_hosts_failure() {
+	local path="$1"
+	local backup="$2"
+	local snapshot_dir="$3"
+	local original_version="$4"
+	local message="$5"
+	local version recovery_path
+
+	kpanel_system_resource_error "$message"
+	if kpanel_system_resource_restore_hosts "$path" "$backup" "$original_version"; then
+		version="$(kpanel_system_resource_best_version hosts)"
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit failed "$version"
+	else
+		version="$(kpanel_system_resource_best_version hosts)"
+		kpanel_system_resource_error "hosts 回滚失败，需要人工恢复"
+		if recovery_path="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot_dir" hosts)"; then
+			kpanel_system_resource_emit rollback-failed "$version" "$recovery_path"
+		else
+			kpanel_system_resource_error "hosts 失败快照持久化失败，未生成宿主可见备份路径"
+			kpanel_system_resource_emit rollback-failed "$version"
+		fi
+	fi
+	return 1
+}
+
+kpanel_system_resource_hosts_action() {
+	local action="$1"
+	shift
+	local expected path line line_number snapshot_dir backup desired desired_version current_line
+	local index=0 total_lines
+	local address hostnames_csv comment
+	local hosts_trailing_newline=true
+
+	path="$(kpanel_system_resource_hosts_file)"
+	[ -f "$path" ] && [ ! -L "$path" ] || {
+		kpanel_system_resource_error "未找到可安全管理的 hosts 文件"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	}
+	kpanel_system_resource_file_within_bounds "$path" 262144 1024 || {
+		kpanel_system_resource_error "hosts 超过 256KiB 或 1024 行协议上限"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version hosts)"
+		return 2
+	}
+	case "$action" in
+		add)
+			[ "$#" -eq 4 ] || {
+				kpanel_system_resource_error "hosts add 需要 expected,address,hostnamesCSV,comment"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version hosts)"
+				return 2
+			}
+			expected="$1"
+			address="$2"
+			hostnames_csv="$3"
+			comment="$4"
+			kpanel_system_resource_hosts_build_line "$address" "$hostnames_csv" "$comment" || {
+				kpanel_system_resource_error "hosts 地址、主机名或注释无效"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version hosts)"
+				return 2
+			}
+			line="$KPANEL_SYSTEM_RESOURCE_HOSTS_LINE"
+			;;
+		delete)
+			[ "$#" -eq 2 ] || {
+				kpanel_system_resource_error "hosts delete 需要 expected,line"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version hosts)"
+				return 2
+			}
+			expected="$1"
+			line_number="$2"
+			[[ "$line_number" =~ ^[0-9]{1,4}$ ]] &&
+				[ "$((10#$line_number))" -ge 1 ] &&
+				[ "$((10#$line_number))" -le 1024 ] || {
+				kpanel_system_resource_error "hosts 行号必须为 1-1024"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version hosts)"
+				return 2
+			}
+			line_number=$((10#$line_number))
+			;;
+		*)
+			kpanel_system_resource_error "不支持的 hosts 动作"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version hosts)"
+			return 2
+			;;
+	esac
+
+	kpanel_system_resource_check_expected hosts "$expected" || return $?
+	if [ "$action" = "add" ] && grep -Fqx -- "$line" "$path"; then
+		kpanel_system_resource_emit unchanged "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 0
+	fi
+	if [ "$action" = "delete" ]; then
+		total_lines="$(awk 'END {print NR + 0}' "$path")"
+		if [ "$line_number" -gt "$total_lines" ]; then
+			kpanel_system_resource_error "hosts 行号超出当前文件范围"
+			kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+			return 2
+		fi
+		if [ -s "$path" ] && [ "$(tail -c 1 "$path" | wc -l)" -eq 0 ]; then
+			hosts_trailing_newline=false
+		fi
+	fi
+
+	snapshot_dir="$(kpanel_system_resource_tempdir hosts)" || {
+		kpanel_system_resource_error "无法创建 hosts 事务目录"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+	backup="$snapshot_dir/hosts.backup"
+	cp -p -- "$path" "$backup" >/dev/null 2>&1 || {
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "无法备份 hosts"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+	desired="$(mktemp "$(dirname -- "$path")/.hosts.kpanel.XXXXXX")" || {
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "无法创建 hosts 临时文件"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+
+	if [ "$action" = "add" ]; then
+		cp -- "$path" "$desired" >/dev/null 2>&1 || {
+			rm -f -- "$desired"
+			kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "无法复制 hosts"
+			return $?
+		}
+		if [ -s "$desired" ] && [ "$(tail -c 1 "$desired" | wc -l)" -eq 0 ]; then
+			printf '\n' >> "$desired" || {
+				rm -f -- "$desired"
+				kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "无法生成 hosts"
+				return $?
+			}
+		fi
+		printf '%s\n' "$line" >> "$desired" || {
+			rm -f -- "$desired"
+			kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "无法写入 hosts"
+			return $?
+		}
+	else
+		: > "$desired" || {
+			rm -f -- "$desired"
+			kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "无法生成 hosts"
+			return $?
+		}
+		while IFS= read -r current_line || [ -n "$current_line" ]; do
+			index=$((index + 1))
+			if [ "$index" -eq "$line_number" ]; then
+				continue
+			fi
+			if [ "$index" -eq "$total_lines" ] && [ "$hosts_trailing_newline" = false ]; then
+				printf '%s' "$current_line" >> "$desired"
+			else
+				printf '%s\n' "$current_line" >> "$desired"
+			fi || {
+				rm -f -- "$desired"
+				kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "无法重写 hosts"
+				return $?
+			}
+		done < "$path"
+	fi
+	kpanel_system_resource_file_within_bounds "$desired" 262144 1024 || {
+		rm -f -- "$desired"
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "修改后的 hosts 超过 256KiB 或 1024 行协议上限"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 2
+	}
+
+	kpanel_system_resource_copy_identity "$path" "$desired" || {
+		rm -f -- "$desired"
+		kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "无法保留 hosts 权限或属主"
+		return $?
+	}
+	desired_version="$(sha256sum -- "$desired" 2>/dev/null | awk '{print $1}')"
+	if ! kpanel_system_resource_valid_version "$desired_version"; then
+		rm -f -- "$desired"
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "无法计算修改后的 hosts 版本"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	fi
+	if ! mv -f -- "$desired" "$path" >/dev/null 2>&1 ||
+		[ "$(kpanel_system_resource_hosts_version 2>/dev/null)" != "$desired_version" ]; then
+		rm -f -- "$desired"
+		kpanel_system_resource_hosts_failure "$path" "$backup" "$snapshot_dir" "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" "hosts 原子写入或回读验证失败"
+		return $?
+	fi
+	rm -rf -- "$snapshot_dir"
+	kpanel_system_resource_emit applied "$desired_version"
+}
+
+kpanel_system_resource_cron_number_in_range() {
+	local value="$1"
+	local minimum="$2"
+	local maximum="$3"
+	[[ "$value" =~ ^[0-9]{1,3}$ ]] &&
+		[ "$((10#$value))" -ge "$minimum" ] &&
+		[ "$((10#$value))" -le "$maximum" ]
+}
+
+kpanel_system_resource_cron_value_in_range() {
+	local value="$1"
+	local minimum="$2"
+	local maximum="$3"
+	local kind="$4"
+	local numeric=""
+
+	if [[ "$value" =~ ^[0-9]{1,3}$ ]]; then
+		numeric=$((10#$value))
+	else
+		case "$kind:${value^^}" in
+			month:JAN) numeric=1 ;; month:FEB) numeric=2 ;; month:MAR) numeric=3 ;;
+			month:APR) numeric=4 ;; month:MAY) numeric=5 ;; month:JUN) numeric=6 ;;
+			month:JUL) numeric=7 ;; month:AUG) numeric=8 ;; month:SEP) numeric=9 ;;
+			month:OCT) numeric=10 ;; month:NOV) numeric=11 ;; month:DEC) numeric=12 ;;
+			weekday:SUN) numeric=0 ;; weekday:MON) numeric=1 ;; weekday:TUE) numeric=2 ;;
+			weekday:WED) numeric=3 ;; weekday:THU) numeric=4 ;; weekday:FRI) numeric=5 ;;
+			weekday:SAT) numeric=6 ;;
+			*) return 1 ;;
+		esac
+	fi
+	[ "$numeric" -ge "$minimum" ] && [ "$numeric" -le "$maximum" ] || return 1
+	KPANEL_SYSTEM_RESOURCE_CRON_NUMERIC_VALUE="$numeric"
+}
+
+kpanel_system_resource_cron_field() {
+	local field="$1"
+	local minimum="$2"
+	local maximum="$3"
+	local kind="$4"
+	local item base step start end start_numeric end_numeric
+	local items=()
+
+	IFS=, read -r -a items <<< "$field"
+	[ "${#items[@]}" -ge 1 ] || return 1
+	for item in "${items[@]}"; do
+		[ -n "$item" ] || return 1
+		base="$item"
+		if [[ "$item" == */* ]]; then
+			base="${item%%/*}"
+			step="${item#*/}"
+			[[ "$step" != */* ]] &&
+				kpanel_system_resource_cron_number_in_range "$step" 1 "$maximum" || return 1
+		fi
+		if [ "$base" = "*" ]; then
+			continue
+		elif [[ "$base" == *-* ]]; then
+			start="${base%%-*}"
+			end="${base#*-}"
+			[[ "$end" != *-* ]] &&
+				kpanel_system_resource_cron_value_in_range "$start" "$minimum" "$maximum" "$kind" || return 1
+			start_numeric="$KPANEL_SYSTEM_RESOURCE_CRON_NUMERIC_VALUE"
+			kpanel_system_resource_cron_value_in_range "$end" "$minimum" "$maximum" "$kind" || return 1
+			end_numeric="$KPANEL_SYSTEM_RESOURCE_CRON_NUMERIC_VALUE"
+			[ "$start_numeric" -le "$end_numeric" ] || return 1
+		else
+			kpanel_system_resource_cron_value_in_range "$base" "$minimum" "$maximum" "$kind" || return 1
+		fi
+	done
+}
+
+kpanel_system_resource_cron_expression() {
+	local expression="$1"
+	local fields=()
+
+	kpanel_system_resource_single_line "$expression" 128 && [ -n "$expression" ] || return 1
+	case "$expression" in
+		@reboot|@yearly|@annually|@monthly|@weekly|@daily|@midnight|@hourly)
+			KPANEL_SYSTEM_RESOURCE_CRON_EXPRESSION="$expression"
+			return 0
+			;;
+	esac
+	read -r -a fields <<< "$expression"
+	[ "${#fields[@]}" -eq 5 ] || return 1
+	kpanel_system_resource_cron_field "${fields[0]}" 0 59 numeric &&
+		kpanel_system_resource_cron_field "${fields[1]}" 0 23 numeric &&
+		kpanel_system_resource_cron_field "${fields[2]}" 1 31 numeric &&
+		kpanel_system_resource_cron_field "${fields[3]}" 1 12 month &&
+		kpanel_system_resource_cron_field "${fields[4]}" 0 7 weekday || return 1
+	KPANEL_SYSTEM_RESOURCE_CRON_EXPRESSION="${fields[*]}"
+}
+
+kpanel_system_resource_cron_read_command() {
+	local frame bytes line_feeds command_value
+	KPANEL_SYSTEM_RESOURCE_CRON_COMMAND=""
+	KPANEL_SYSTEM_RESOURCE_CRON_COMMAND_ERROR=operation
+	frame="$(mktemp /tmp/kejilion-system-resource-cron-command.XXXXXX)" || return 1
+	chmod 600 "$frame" >/dev/null 2>&1 || {
+		rm -f -- "$frame"
+		return 1
+	}
+	if ! head -c 2050 > "$frame" 2>/dev/null; then
+		rm -f -- "$frame"
+		return 1
+	fi
+	bytes="$(wc -c < "$frame" 2>/dev/null)" || {
+		rm -f -- "$frame"
+		return 1
+	}
+	KPANEL_SYSTEM_RESOURCE_CRON_COMMAND_ERROR=invalid
+	if [ "$bytes" -lt 1 ] || [ "$bytes" -gt 2049 ] ||
+		! LC_ALL=C tr -d '\000' < "$frame" | cmp -s - "$frame" ||
+		LC_ALL=C grep -q $'\r' "$frame"; then
+		rm -f -- "$frame"
+		return 1
+	fi
+	line_feeds="$(LC_ALL=C tr -cd '\n' < "$frame" | wc -c)" || {
+		rm -f -- "$frame"
+		KPANEL_SYSTEM_RESOURCE_CRON_COMMAND_ERROR=operation
+		return 1
+	}
+	if [ "$line_feeds" -ne 1 ] || [ "$(tail -c 1 "$frame" | wc -l)" -ne 1 ]; then
+		rm -f -- "$frame"
+		return 1
+	fi
+	IFS= read -r command_value < "$frame" || {
+		rm -f -- "$frame"
+		return 1
+	}
+	rm -f -- "$frame"
+	KPANEL_SYSTEM_RESOURCE_CRON_COMMAND="$command_value"
+	KPANEL_SYSTEM_RESOURCE_CRON_COMMAND_ERROR=""
+}
+
+kpanel_system_resource_cron_contains_line() {
+	local path="$1"
+	local expected_line="$2"
+	local current_line
+	while IFS= read -r current_line || [ -n "$current_line" ]; do
+		[ "$current_line" = "$expected_line" ] && return 0
+	done < "$path"
+	return 1
+}
+
+kpanel_system_resource_cron_restore() {
+	local backup="$1"
+	local existed="$2"
+	local verify="$3"
+
+	if [ "$existed" = true ]; then
+		crontab "$backup" >/dev/null 2>&1 || return 1
+	else
+		crontab -r >/dev/null 2>&1 || true
+	fi
+	kpanel_system_resource_cron_capture "$verify" || return 1
+	cmp -s -- "$backup" "$verify"
+}
+
+kpanel_system_resource_cron_failure() {
+	local snapshot_dir="$1"
+	local backup="$2"
+	local existed="$3"
+	local message="$4"
+	local verify="$snapshot_dir/rollback.verify"
+	local version recovery_path
+
+	kpanel_system_resource_error "$message"
+	if kpanel_system_resource_cron_restore "$backup" "$existed" "$verify"; then
+		version="$(kpanel_system_resource_best_version cron)"
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit failed "$version"
+	else
+		version="$(kpanel_system_resource_best_version cron)"
+		kpanel_system_resource_error "crontab 回滚失败，需要人工恢复"
+		if recovery_path="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot_dir" cron)"; then
+			kpanel_system_resource_emit rollback-failed "$version" "$recovery_path"
+		else
+			kpanel_system_resource_error "crontab 失败快照持久化失败，未生成宿主可见备份路径"
+			kpanel_system_resource_emit rollback-failed "$version"
+		fi
+	fi
+	return 1
+}
+
+kpanel_system_resource_cron_action() {
+	local action="$1"
+	shift
+	local expected line_number expression command_source command_value trimmed_command new_line snapshot_dir backup desired verify
+	local cron_existed current_line index=0 total_lines
+	local command_read_rc
+
+	command -v crontab >/dev/null 2>&1 || {
+		kpanel_system_resource_error "缺少 crontab 命令"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	}
+	case "$action" in
+		add)
+			[ "$#" -eq 3 ] || {
+				kpanel_system_resource_error "cron add 需要 expected,expression,--command-stdin"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+				return 2
+			}
+			expected="$1"
+			expression="$2"
+			command_source="$3"
+			;;
+		update)
+			[ "$#" -eq 4 ] || {
+				kpanel_system_resource_error "cron update 需要 expected,line,expression,--command-stdin"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+				return 2
+			}
+			expected="$1"
+			line_number="$2"
+			expression="$3"
+			command_source="$4"
+			[[ "$line_number" =~ ^[0-9]{1,3}$ ]] &&
+				[ "$((10#$line_number))" -ge 1 ] &&
+				[ "$((10#$line_number))" -le 512 ] || {
+				kpanel_system_resource_error "cron 行号必须为 1-512"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+				return 2
+			}
+			line_number=$((10#$line_number))
+			;;
+		delete)
+			[ "$#" -eq 2 ] || {
+				kpanel_system_resource_error "cron delete 需要 expected,line"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+				return 2
+			}
+			expected="$1"
+			line_number="$2"
+			[[ "$line_number" =~ ^[0-9]{1,3}$ ]] &&
+				[ "$((10#$line_number))" -ge 1 ] &&
+				[ "$((10#$line_number))" -le 512 ] || {
+				kpanel_system_resource_error "cron 行号必须为 1-512"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+				return 2
+			}
+			line_number=$((10#$line_number))
+			;;
+		*)
+			kpanel_system_resource_error "不支持的 cron 动作"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+			return 2
+			;;
+	esac
+
+	if [ "$action" != "delete" ]; then
+		[ "$command_source" = "--command-stdin" ] &&
+			kpanel_system_resource_cron_expression "$expression" || {
+			kpanel_system_resource_error "cron 表达式或命令输入方式无效"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version cron)"
+			return 2
+		}
+	fi
+	kpanel_system_resource_check_expected cron "$expected" || return $?
+	if [ "$action" != "delete" ]; then
+		kpanel_system_resource_cron_read_command
+		command_read_rc=$?
+		if [ "$command_read_rc" -ne 0 ]; then
+			if [ "$KPANEL_SYSTEM_RESOURCE_CRON_COMMAND_ERROR" = invalid ]; then
+				kpanel_system_resource_error "cron 命令 stdin 帧无效"
+				kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+				return 2
+			fi
+			kpanel_system_resource_error "无法安全读取 cron 命令 stdin 帧"
+			kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+			return 1
+		fi
+		command_value="$KPANEL_SYSTEM_RESOURCE_CRON_COMMAND"
+		trimmed_command="$command_value"
+		trimmed_command="${trimmed_command#"${trimmed_command%%[![:space:]]*}"}"
+		trimmed_command="${trimmed_command%"${trimmed_command##*[![:space:]]}"}"
+		[ -n "$trimmed_command" ] || {
+			kpanel_system_resource_error "cron 命令 stdin 帧无效"
+			kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+			return 2
+		}
+		new_line="$KPANEL_SYSTEM_RESOURCE_CRON_EXPRESSION $command_value"
+	fi
+
+	snapshot_dir="$(kpanel_system_resource_tempdir cron)" || {
+		kpanel_system_resource_error "无法创建 cron 事务目录"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+	backup="$snapshot_dir/crontab.backup"
+	kpanel_system_resource_cron_capture "$backup" || {
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "无法读取当前 crontab"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+	cron_existed="$KPANEL_SYSTEM_RESOURCE_CRON_EXISTED"
+
+	if [ "$action" = "add" ] && kpanel_system_resource_cron_contains_line "$backup" "$new_line"; then
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit unchanged "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 0
+	fi
+	if [ "$action" != "add" ]; then
+		total_lines="$(awk 'END {print NR + 0}' "$backup")"
+		if [ "$line_number" -gt "$total_lines" ]; then
+			rm -rf -- "$snapshot_dir"
+			kpanel_system_resource_error "cron 行号超出当前 crontab 范围"
+			kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+			return 2
+		fi
+	fi
+
+	desired="$snapshot_dir/crontab.desired"
+	if [ "$action" = "add" ]; then
+		cp -- "$backup" "$desired" >/dev/null 2>&1 || {
+			rm -rf -- "$snapshot_dir"
+			kpanel_system_resource_error "无法复制当前 crontab"
+			kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+			return 1
+		}
+		if [ -s "$desired" ] && [ "$(tail -c 1 "$desired" | wc -l)" -eq 0 ]; then
+			printf '\n' >> "$desired" || {
+				rm -rf -- "$snapshot_dir"
+				kpanel_system_resource_error "无法生成 crontab"
+				kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+				return 1
+			}
+		fi
+		builtin printf '%s\n' "$new_line" >> "$desired" || {
+			kpanel_system_resource_cron_failure "$snapshot_dir" "$backup" "$cron_existed" "无法生成 crontab"
+			return $?
+		}
+	else
+		: > "$desired" || {
+			rm -rf -- "$snapshot_dir"
+			kpanel_system_resource_error "无法创建 crontab 目标文件"
+			kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+			return 1
+		}
+		while IFS= read -r current_line || [ -n "$current_line" ]; do
+			index=$((index + 1))
+			if [ "$index" -eq "$line_number" ]; then
+				if [ "$action" != "delete" ] && ! builtin printf '%s\n' "$new_line" >> "$desired"; then
+					rm -rf -- "$snapshot_dir"
+					kpanel_system_resource_error "无法生成 crontab"
+					kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+					return 1
+				fi
+				continue
+			fi
+			printf '%s\n' "$current_line" >> "$desired" || {
+				kpanel_system_resource_cron_failure "$snapshot_dir" "$backup" "$cron_existed" "无法生成 crontab"
+				return $?
+			}
+		done < "$backup"
+	fi
+	if ! kpanel_system_resource_file_within_bounds "$desired" 262144 512; then
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "修改后的 crontab 超过 256KiB 或 512 行协议上限"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 2
+	fi
+	if cmp -s -- "$backup" "$desired"; then
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit unchanged "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 0
+	fi
+
+	if ! crontab "$desired" >/dev/null 2>&1; then
+		kpanel_system_resource_cron_failure "$snapshot_dir" "$backup" "$cron_existed" "crontab 安装失败"
+		return $?
+	fi
+	verify="$snapshot_dir/crontab.verify"
+	if ! kpanel_system_resource_cron_capture "$verify"; then
+		kpanel_system_resource_cron_failure "$snapshot_dir" "$backup" "$cron_existed" "crontab 回读失败"
+		return $?
+	fi
+	if ! cmp -s -- "$desired" "$verify"; then
+		kpanel_system_resource_cron_failure "$snapshot_dir" "$backup" "$cron_existed" "crontab 回读验证失败"
+		return $?
+	fi
+	local applied_version
+	applied_version="$(sha256sum -- "$verify" 2>/dev/null | awk '{print $1}')"
+	if ! kpanel_system_resource_valid_version "$applied_version"; then
+		kpanel_system_resource_cron_failure "$snapshot_dir" "$backup" "$cron_existed" "无法计算 crontab 版本"
+		return $?
+	fi
+	rm -rf -- "$snapshot_dir"
+	kpanel_system_resource_emit applied "$applied_version"
+}
+
+kpanel_system_resource_interface_admin_state() {
+	local name="$1"
+	local root flags numeric
+	root="$(kpanel_system_resource_interfaces_dir)"
+	flags="$(cat "$root/$name/flags" 2>/dev/null)" || return 1
+	[[ "$flags" =~ ^0x[0-9A-Fa-f]+$ ]] || return 1
+	numeric=$((flags))
+	if [ "$((numeric & 1))" -eq 1 ]; then
+		printf 'up\n'
+	else
+		printf 'down\n'
+	fi
+}
+
+kpanel_system_resource_interface_failure() {
+	local name="$1"
+	local old_state="$2"
+	local message="$3"
+	local current_state="" version attempt
+
+	kpanel_system_resource_error "$message"
+	current_state="$(kpanel_system_resource_interface_admin_state "$name" 2>/dev/null || true)"
+	if [ "$current_state" != "$old_state" ]; then
+		ip link set dev "$name" "$old_state" >/dev/null 2>&1 || true
+		for attempt in 1 2 3 4 5; do
+			current_state="$(kpanel_system_resource_interface_admin_state "$name" 2>/dev/null || true)"
+			[ "$current_state" = "$old_state" ] && break
+			sleep 0.1
+		done
+	fi
+	version="$(kpanel_system_resource_best_version network-interface "$name")"
+	if [ "$current_state" = "$old_state" ]; then
+		kpanel_system_resource_emit failed "$version"
+	else
+		kpanel_system_resource_error "网卡状态回滚失败，需要人工恢复"
+		kpanel_system_resource_emit rollback-failed "$version"
+	fi
+	return 1
+}
+
+kpanel_system_resource_interface_action() {
+	local action="$1"
+	shift
+	local expected name desired old_state current_state version attempt
+
+	[ "$action" = "state" ] || {
+		kpanel_system_resource_error "不支持的 network-interface 动作"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	}
+	[ "$#" -eq 3 ] || {
+		kpanel_system_resource_error "network-interface state 需要 expected,name,up|down"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	}
+	expected="$1"
+	name="$2"
+	desired="$3"
+	[ "${#name}" -ge 1 ] && [ "${#name}" -le 15 ] &&
+		kpanel_system_resource_single_line "$name" 15 &&
+		kpanel_system_resource_interface_exists "$name" || {
+		kpanel_system_resource_error "网卡名称不在系统枚举中"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	}
+	case "$desired" in up|down) ;; *)
+		kpanel_system_resource_error "网卡状态必须为 up 或 down"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version network-interface "$name")"
+		return 2
+		;;
+	esac
+	command -v ip >/dev/null 2>&1 || {
+		kpanel_system_resource_error "缺少 ip 命令"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version network-interface "$name")"
+		return 2
+	}
+	kpanel_system_resource_check_expected network-interface "$expected" "$name" || return $?
+	old_state="$(kpanel_system_resource_interface_admin_state "$name")" || {
+		kpanel_system_resource_error "无法读取网卡管理状态"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+	if [ "$old_state" = "$desired" ]; then
+		kpanel_system_resource_emit unchanged "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 0
+	fi
+	if ! ip link set dev "$name" "$desired" >/dev/null 2>&1; then
+		kpanel_system_resource_interface_failure "$name" "$old_state" "网卡状态修改失败，正在恢复"
+		return 1
+	fi
+	current_state=""
+	for attempt in 1 2 3 4 5; do
+		current_state="$(kpanel_system_resource_interface_admin_state "$name" 2>/dev/null || true)"
+		[ "$current_state" = "$desired" ] && break
+		sleep 0.1
+	done
+	if [ "$current_state" != "$desired" ]; then
+		kpanel_system_resource_interface_failure "$name" "$old_state" "网卡状态回读验证失败，正在恢复"
+		return 1
+	fi
+	version="$(kpanel_system_resource_interface_version "$name" 2>/dev/null)" || {
+		kpanel_system_resource_interface_failure "$name" "$old_state" "无法计算网卡资源版本，正在恢复"
+		return 1
+	}
+	kpanel_system_resource_emit applied "$version"
+}
+
+kpanel_system_resource_iptables() {
+	iptables -w 5 "$@" >/dev/null 2>&1
+}
+
+kpanel_system_resource_firewall_rule_exists() {
+	local chain="$1"
+	shift
+	kpanel_system_resource_iptables -C "$chain" "$@"
+}
+
+kpanel_system_resource_firewall_delete_rule() {
+	local chain="$1"
+	shift
+	while kpanel_system_resource_firewall_rule_exists "$chain" "$@"; do
+		kpanel_system_resource_iptables -D "$chain" "$@" || return 1
+		KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=true
+	done
+}
+
+kpanel_system_resource_firewall_ensure_rule() {
+	local placement="$1"
+	local chain="$2"
+	shift 2
+	kpanel_system_resource_firewall_rule_exists "$chain" "$@" && return 0
+	case "$placement" in
+		insert) kpanel_system_resource_iptables -I "$chain" 1 "$@" ;;
+		append) kpanel_system_resource_iptables -A "$chain" "$@" ;;
+		*) return 1 ;;
+	esac || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=true
+}
+
+kpanel_system_resource_firewall_chain_exists() {
+	kpanel_system_resource_iptables -S "$1"
+}
+
+kpanel_system_resource_firewall_port() {
+	local value="$1"
+	[[ "$value" =~ ^[0-9]{1,5}$ ]] &&
+		[ "$((10#$value))" -ge 1 ] &&
+		[ "$((10#$value))" -le 65535 ]
+}
+
+kpanel_system_resource_ssh_ports() {
+	local ports="" config
+	if command -v sshd >/dev/null 2>&1; then
+		ports="$(sshd -T 2>/dev/null | awk 'tolower($1) == "port" && $2 ~ /^[0-9]+$/ {print $2}')"
+	fi
+	if [ -z "$ports" ]; then
+		ports="$({
+			for config in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do
+				[ -f "$config" ] || continue
+				awk 'tolower($1) == "port" && $2 ~ /^[0-9]+$/ {print $2}' "$config"
+			done
+		} 2>/dev/null)"
+	fi
+	[ -n "$ports" ] || ports=22
+	printf '%s\n' "$ports" | awk '/^[0-9]+$/ && $1 >= 1 && $1 <= 65535' | sort -nu
+}
+
+kpanel_system_resource_firewall_open_port_rules() {
+	local port="$1" protocol
+	for protocol in tcp udp; do
+		kpanel_system_resource_firewall_delete_rule INPUT -p "$protocol" --dport "$port" -j DROP || return 1
+		kpanel_system_resource_firewall_ensure_rule insert INPUT -p "$protocol" --dport "$port" -j ACCEPT || return 1
+	done
+	for protocol in tcp udp; do
+		kpanel_system_resource_firewall_rule_exists INPUT -p "$protocol" --dport "$port" -j ACCEPT || return 1
+		! kpanel_system_resource_firewall_rule_exists INPUT -p "$protocol" --dport "$port" -j DROP || return 1
+	done
+}
+
+kpanel_system_resource_firewall_close_port_rules() {
+	local port="$1" protocol
+	for protocol in tcp udp; do
+		kpanel_system_resource_firewall_delete_rule INPUT -p "$protocol" --dport "$port" -j ACCEPT || return 1
+		kpanel_system_resource_firewall_ensure_rule insert INPUT -p "$protocol" --dport "$port" -j DROP || return 1
+	done
+	kpanel_system_resource_firewall_ensure_rule insert INPUT -i lo -j ACCEPT || return 1
+	kpanel_system_resource_firewall_ensure_rule insert FORWARD -i lo -j ACCEPT || return 1
+	for protocol in tcp udp; do
+		kpanel_system_resource_firewall_rule_exists INPUT -p "$protocol" --dport "$port" -j DROP || return 1
+		! kpanel_system_resource_firewall_rule_exists INPUT -p "$protocol" --dport "$port" -j ACCEPT || return 1
+	done
+}
+
+kpanel_system_resource_firewall_allow_ip_rules() {
+	local address="$1"
+	kpanel_system_resource_firewall_delete_rule INPUT -s "$address" -j DROP || return 1
+	kpanel_system_resource_firewall_ensure_rule insert INPUT -s "$address" -j ACCEPT || return 1
+	kpanel_system_resource_firewall_rule_exists INPUT -s "$address" -j ACCEPT &&
+		! kpanel_system_resource_firewall_rule_exists INPUT -s "$address" -j DROP
+}
+
+kpanel_system_resource_firewall_block_ip_rules() {
+	local address="$1"
+	kpanel_system_resource_firewall_delete_rule INPUT -s "$address" -j ACCEPT || return 1
+	kpanel_system_resource_firewall_ensure_rule insert INPUT -s "$address" -j DROP || return 1
+	kpanel_system_resource_firewall_rule_exists INPUT -s "$address" -j DROP &&
+		! kpanel_system_resource_firewall_rule_exists INPUT -s "$address" -j ACCEPT
+}
+
+kpanel_system_resource_firewall_remove_ip_rules() {
+	local address="$1"
+	kpanel_system_resource_firewall_delete_rule INPUT -s "$address" -j ACCEPT &&
+		kpanel_system_resource_firewall_delete_rule INPUT -s "$address" -j DROP || return 1
+	! kpanel_system_resource_firewall_rule_exists INPUT -s "$address" -j ACCEPT &&
+		! kpanel_system_resource_firewall_rule_exists INPUT -s "$address" -j DROP
+}
+
+kpanel_system_resource_firewall_enable_ping_rules() {
+	kpanel_system_resource_firewall_delete_rule INPUT -p icmp --icmp-type echo-request -j DROP &&
+		kpanel_system_resource_firewall_delete_rule OUTPUT -p icmp --icmp-type echo-reply -j DROP &&
+		kpanel_system_resource_firewall_delete_rule INPUT -p icmp --icmp-type echo-request -j ACCEPT &&
+		kpanel_system_resource_firewall_delete_rule OUTPUT -p icmp --icmp-type echo-reply -j ACCEPT || return 1
+	kpanel_system_resource_iptables -I INPUT 1 -p icmp --icmp-type echo-request -j ACCEPT &&
+		kpanel_system_resource_iptables -I OUTPUT 1 -p icmp --icmp-type echo-reply -j ACCEPT || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=true
+	kpanel_system_resource_firewall_rule_exists INPUT -p icmp --icmp-type echo-request -j ACCEPT &&
+		kpanel_system_resource_firewall_rule_exists OUTPUT -p icmp --icmp-type echo-reply -j ACCEPT
+}
+
+kpanel_system_resource_firewall_disable_ping_rules() {
+	kpanel_system_resource_firewall_delete_rule INPUT -p icmp --icmp-type echo-request -j ACCEPT &&
+		kpanel_system_resource_firewall_delete_rule OUTPUT -p icmp --icmp-type echo-reply -j ACCEPT &&
+		kpanel_system_resource_firewall_delete_rule INPUT -p icmp --icmp-type echo-request -j DROP &&
+		kpanel_system_resource_firewall_delete_rule OUTPUT -p icmp --icmp-type echo-reply -j DROP || return 1
+	kpanel_system_resource_iptables -I INPUT 1 -p icmp --icmp-type echo-request -j DROP &&
+		kpanel_system_resource_iptables -I OUTPUT 1 -p icmp --icmp-type echo-reply -j DROP || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=true
+	kpanel_system_resource_firewall_rule_exists INPUT -p icmp --icmp-type echo-request -j DROP &&
+		kpanel_system_resource_firewall_rule_exists OUTPUT -p icmp --icmp-type echo-reply -j DROP
+}
+
+kpanel_system_resource_firewall_enable_ddos_chain() {
+	local chain="$1"
+	kpanel_system_resource_firewall_disable_ddos_chain "$chain" || return 1
+	kpanel_system_resource_iptables -I "$chain" 1 -p udp -j DROP || return 1
+	kpanel_system_resource_iptables -I "$chain" 1 -p udp -m limit --limit 3000/s -j ACCEPT || return 1
+	kpanel_system_resource_iptables -I "$chain" 1 -p tcp --syn -j DROP || return 1
+	kpanel_system_resource_iptables -I "$chain" 1 -p tcp --syn -m limit --limit 500/s --limit-burst 100 -j ACCEPT || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=true
+	kpanel_system_resource_firewall_rule_exists "$chain" -p tcp --syn -m limit --limit 500/s --limit-burst 100 -j ACCEPT &&
+		kpanel_system_resource_firewall_rule_exists "$chain" -p tcp --syn -j DROP &&
+		kpanel_system_resource_firewall_rule_exists "$chain" -p udp -m limit --limit 3000/s -j ACCEPT &&
+		kpanel_system_resource_firewall_rule_exists "$chain" -p udp -j DROP
+}
+
+kpanel_system_resource_firewall_disable_ddos_chain() {
+	local chain="$1"
+	kpanel_system_resource_firewall_delete_rule "$chain" -p tcp --syn -m limit --limit 500/s --limit-burst 100 -j ACCEPT &&
+		kpanel_system_resource_firewall_delete_rule "$chain" -p tcp --syn -j DROP &&
+		kpanel_system_resource_firewall_delete_rule "$chain" -p udp -m limit --limit 3000/s -j ACCEPT &&
+		kpanel_system_resource_firewall_delete_rule "$chain" -p udp -j DROP
+}
+
+kpanel_system_resource_firewall_enable_ddos_rules() {
+	kpanel_system_resource_firewall_enable_ddos_chain INPUT || return 1
+	if kpanel_system_resource_firewall_chain_exists DOCKER-USER; then
+		kpanel_system_resource_firewall_enable_ddos_chain DOCKER-USER || return 1
+	fi
+}
+
+kpanel_system_resource_firewall_disable_ddos_rules() {
+	kpanel_system_resource_firewall_disable_ddos_chain INPUT || return 1
+	if kpanel_system_resource_firewall_chain_exists DOCKER-USER; then
+		kpanel_system_resource_firewall_disable_ddos_chain DOCKER-USER || return 1
+	fi
+}
+
+kpanel_system_resource_firewall_base_rules() {
+	local ssh_port
+	kpanel_system_resource_firewall_ensure_rule append INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT &&
+		kpanel_system_resource_firewall_ensure_rule append OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT &&
+		kpanel_system_resource_firewall_ensure_rule append INPUT -i lo -j ACCEPT &&
+		kpanel_system_resource_firewall_ensure_rule append FORWARD -i lo -j ACCEPT || return 1
+	while IFS= read -r ssh_port; do
+		[ -n "$ssh_port" ] || continue
+		kpanel_system_resource_firewall_ensure_rule append INPUT -p tcp --dport "$ssh_port" -j ACCEPT || return 1
+	done < <(kpanel_system_resource_ssh_ports)
+}
+
+kpanel_system_resource_firewall_all_rules() {
+	local input_policy="$1"
+	kpanel_system_resource_iptables -F &&
+		kpanel_system_resource_iptables -X || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=true
+	kpanel_system_resource_iptables -P OUTPUT ACCEPT || return 1
+	if [ "$input_policy" = ACCEPT ]; then
+		kpanel_system_resource_iptables -P INPUT ACCEPT &&
+			kpanel_system_resource_iptables -P FORWARD ACCEPT || return 1
+		kpanel_system_resource_firewall_base_rules || return 1
+	else
+		kpanel_system_resource_firewall_base_rules || return 1
+		kpanel_system_resource_iptables -P INPUT DROP &&
+			kpanel_system_resource_iptables -P FORWARD DROP || return 1
+	fi
+	iptables -w 5 -S INPUT 2>/dev/null | grep -Fqx -- "-P INPUT $input_policy" &&
+		iptables -w 5 -S FORWARD 2>/dev/null | grep -Fqx -- "-P FORWARD $input_policy" &&
+		iptables -w 5 -S OUTPUT 2>/dev/null | grep -Fqx -- "-P OUTPUT ACCEPT"
+}
+
+kpanel_system_resource_firewall_apply() {
+	local action="$1"
+	local value="${2:-}"
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CHANGED=false
+	case "$action" in
+		open-port) kpanel_system_resource_firewall_open_port_rules "$value" ;;
+		close-port) kpanel_system_resource_firewall_close_port_rules "$value" ;;
+		allow-ip) kpanel_system_resource_firewall_allow_ip_rules "$value" ;;
+		block-ip) kpanel_system_resource_firewall_block_ip_rules "$value" ;;
+		remove-ip) kpanel_system_resource_firewall_remove_ip_rules "$value" ;;
+		open-all) kpanel_system_resource_firewall_all_rules ACCEPT ;;
+		close-all) kpanel_system_resource_firewall_all_rules DROP ;;
+		enable-ping) kpanel_system_resource_firewall_enable_ping_rules ;;
+		disable-ping) kpanel_system_resource_firewall_disable_ping_rules ;;
+		enable-ddos) kpanel_system_resource_firewall_enable_ddos_rules ;;
+		disable-ddos) kpanel_system_resource_firewall_disable_ddos_rules ;;
+		*) return 2 ;;
+	esac
+}
+
+kpanel_system_resource_firewall_snapshot() {
+	local snapshot_dir="$1"
+	local rules_path="$2"
+
+	kpanel_system_resource_firewall_capture "$snapshot_dir/iptables.rules" || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_RULES_EXISTED=false
+	if [ -e "$rules_path" ]; then
+		[ -f "$rules_path" ] && [ ! -L "$rules_path" ] || return 1
+		cp -p -- "$rules_path" "$snapshot_dir/rules.v4" >/dev/null 2>&1 || return 1
+		KPANEL_SYSTEM_RESOURCE_FIREWALL_RULES_EXISTED=true
+	fi
+	kpanel_system_resource_cron_capture "$snapshot_dir/crontab" || return 1
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_CRON_EXISTED="$KPANEL_SYSTEM_RESOURCE_CRON_EXISTED"
+}
+
+kpanel_system_resource_firewall_persist() {
+	local snapshot_dir="$1"
+	local rules_path parent desired_rules verify_rules
+	local cron_current cron_desired cron_verify restore_line count current_line
+	local comparison
+
+	KPANEL_SYSTEM_RESOURCE_FIREWALL_PERSIST_CHANGED=false
+	rules_path="$(kpanel_system_resource_iptables_rules_file)"
+	parent="$(dirname -- "$rules_path")"
+	mkdir -p -- "$parent" >/dev/null 2>&1 || return 1
+	[ ! -L "$rules_path" ] || return 1
+	desired_rules="$(mktemp "$parent/.rules.v4.kpanel.XXXXXX")" || return 1
+	if ! kpanel_system_resource_firewall_capture "$desired_rules"; then
+		rm -f -- "$desired_rules"
+		return 1
+	fi
+	comparison=1
+	if [ -f "$rules_path" ]; then
+		if kpanel_system_resource_firewall_canonical_equal "$desired_rules" "$rules_path"; then
+			comparison=0
+		else
+			comparison=$?
+		fi
+		if [ "$comparison" -gt 1 ]; then
+			rm -f -- "$desired_rules"
+			return 1
+		fi
+	fi
+	if [ "$comparison" -eq 0 ]; then
+		rm -f -- "$desired_rules"
+	else
+		if [ -f "$rules_path" ]; then
+			kpanel_system_resource_copy_identity "$rules_path" "$desired_rules" || {
+				rm -f -- "$desired_rules"
+				return 1
+			}
+		else
+			chmod 600 "$desired_rules" >/dev/null 2>&1 || {
+				rm -f -- "$desired_rules"
+				return 1
+			}
+		fi
+		mv -f -- "$desired_rules" "$rules_path" >/dev/null 2>&1 || {
+			rm -f -- "$desired_rules"
+			return 1
+		}
+		KPANEL_SYSTEM_RESOURCE_FIREWALL_PERSIST_CHANGED=true
+	fi
+	verify_rules="$snapshot_dir/iptables.persist.verify"
+	kpanel_system_resource_firewall_capture "$verify_rules" || return 1
+	kpanel_system_resource_firewall_canonical_equal "$verify_rules" "$rules_path" || return 1
+
+	restore_line='@reboot iptables-restore < /etc/iptables/rules.v4'
+	cron_current="$snapshot_dir/crontab.persist.current"
+	kpanel_system_resource_cron_capture "$cron_current" || return 1
+	count="$(grep -Fxc -- "$restore_line" "$cron_current" 2>/dev/null || true)"
+	if [ "$count" -ne 1 ]; then
+		cron_desired="$snapshot_dir/crontab.persist.desired"
+		: > "$cron_desired" || return 1
+		while IFS= read -r current_line || [ -n "$current_line" ]; do
+			[ "$current_line" = "$restore_line" ] && continue
+			printf '%s\n' "$current_line" >> "$cron_desired" || return 1
+		done < "$cron_current"
+		if [ -s "$cron_desired" ] && [ "$(tail -c 1 "$cron_desired" | wc -l)" -eq 0 ]; then
+			printf '\n' >> "$cron_desired" || return 1
+		fi
+		printf '%s\n' "$restore_line" >> "$cron_desired" || return 1
+		kpanel_system_resource_file_within_bounds "$cron_desired" 262144 512 || return 1
+		crontab "$cron_desired" >/dev/null 2>&1 || return 1
+		cron_verify="$snapshot_dir/crontab.persist.verify"
+		kpanel_system_resource_cron_capture "$cron_verify" || return 1
+		cmp -s -- "$cron_desired" "$cron_verify" || return 1
+		KPANEL_SYSTEM_RESOURCE_FIREWALL_PERSIST_CHANGED=true
+	fi
+}
+
+kpanel_system_resource_firewall_restore() {
+	local snapshot_dir="$1"
+	local rules_path="$2"
+	local rules_existed="$3"
+	local cron_existed="$4"
+	local verify="$snapshot_dir/rollback.iptables"
+	local cron_verify="$snapshot_dir/rollback.crontab"
+	local failed=false
+
+	iptables-restore -w 5 < "$snapshot_dir/iptables.rules" >/dev/null 2>&1 || failed=true
+	if [ "$rules_existed" = true ]; then
+		cp -p -- "$snapshot_dir/rules.v4" "$rules_path" >/dev/null 2>&1 || failed=true
+	else
+		rm -f -- "$rules_path" >/dev/null 2>&1 || failed=true
+	fi
+	kpanel_system_resource_cron_restore "$snapshot_dir/crontab" "$cron_existed" "$cron_verify" || failed=true
+	kpanel_system_resource_firewall_capture "$verify" || failed=true
+	kpanel_system_resource_firewall_canonical_equal "$snapshot_dir/iptables.rules" "$verify" || failed=true
+	if [ "$rules_existed" = true ]; then
+		cmp -s -- "$snapshot_dir/rules.v4" "$rules_path" || failed=true
+	else
+		[ ! -e "$rules_path" ] || failed=true
+	fi
+	[ "$failed" = false ]
+}
+
+kpanel_system_resource_firewall_failure() {
+	local snapshot_dir="$1"
+	local rules_path="$2"
+	local rules_existed="$3"
+	local cron_existed="$4"
+	local message="$5"
+	local version recovery_path
+
+	kpanel_system_resource_error "$message"
+	if kpanel_system_resource_firewall_restore "$snapshot_dir" "$rules_path" "$rules_existed" "$cron_existed"; then
+		version="$(kpanel_system_resource_best_version firewall)"
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit failed "$version"
+	else
+		version="$(kpanel_system_resource_best_version firewall)"
+		kpanel_system_resource_error "iptables 回滚失败，需要人工恢复"
+		if recovery_path="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot_dir" firewall)"; then
+			kpanel_system_resource_emit rollback-failed "$version" "$recovery_path"
+		else
+			kpanel_system_resource_error "iptables 失败快照持久化失败，未生成宿主可见备份路径"
+			kpanel_system_resource_emit rollback-failed "$version"
+		fi
+	fi
+	return 1
+}
+
+kpanel_system_resource_firewall_action() {
+	local action="$1"
+	shift
+	local expected value="" snapshot_dir rules_path rules_existed cron_existed final_version
+	local command_name
+
+	for command_name in iptables iptables-save iptables-restore crontab; do
+		command -v "$command_name" >/dev/null 2>&1 || {
+			kpanel_system_resource_error "缺少必要命令: $command_name"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+			return 2
+		}
+	done
+	rules_path="$(kpanel_system_resource_iptables_rules_file)"
+	[ ! -L "$rules_path" ] || {
+		kpanel_system_resource_error "iptables 持久化文件不能是符号链接"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+		return 2
+	}
+	case "$action" in
+		open-port|close-port)
+			[ "$#" -eq 2 ] || {
+				kpanel_system_resource_error "$action 需要 expected,value"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+				return 2
+			}
+			expected="$1"
+			value="$2"
+			kpanel_system_resource_firewall_port "$value" || {
+				kpanel_system_resource_error "防火墙端口必须为 1-65535"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+				return 2
+			}
+			value=$((10#$value))
+			;;
+		allow-ip|block-ip|remove-ip)
+			[ "$#" -eq 2 ] || {
+				kpanel_system_resource_error "$action 需要 expected,value"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+				return 2
+			}
+			expected="$1"
+			value="$2"
+			kpanel_system_resource_is_ipv4_cidr "$value" || {
+				kpanel_system_resource_error "防火墙地址必须为 IPv4 或 IPv4 CIDR"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+				return 2
+			}
+			;;
+		open-all|close-all|enable-ping|disable-ping|enable-ddos|disable-ddos)
+			[ "$#" -eq 1 ] || {
+				kpanel_system_resource_error "$action 只需要 expected"
+				kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+				return 2
+			}
+			expected="$1"
+			;;
+		*)
+			kpanel_system_resource_error "不支持的 firewall 动作"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version firewall)"
+			return 2
+			;;
+	esac
+
+	kpanel_system_resource_check_expected firewall "$expected" || return $?
+	snapshot_dir="$(kpanel_system_resource_tempdir firewall)" || {
+		kpanel_system_resource_error "无法创建 firewall 事务目录"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	}
+	if ! kpanel_system_resource_firewall_snapshot "$snapshot_dir" "$rules_path"; then
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_error "无法创建 iptables/crontab 快照"
+		kpanel_system_resource_emit failed "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION"
+		return 1
+	fi
+	rules_existed="$KPANEL_SYSTEM_RESOURCE_FIREWALL_RULES_EXISTED"
+	cron_existed="$KPANEL_SYSTEM_RESOURCE_FIREWALL_CRON_EXISTED"
+	if ! kpanel_system_resource_firewall_apply "$action" "$value"; then
+		kpanel_system_resource_firewall_failure "$snapshot_dir" "$rules_path" "$rules_existed" "$cron_existed" "iptables 动作执行或回读验证失败"
+		return $?
+	fi
+	if ! kpanel_system_resource_firewall_persist "$snapshot_dir"; then
+		kpanel_system_resource_firewall_failure "$snapshot_dir" "$rules_path" "$rules_existed" "$cron_existed" "iptables 持久化失败"
+		return $?
+	fi
+	final_version="$(kpanel_system_resource_firewall_version 2>/dev/null)" || {
+		kpanel_system_resource_firewall_failure "$snapshot_dir" "$rules_path" "$rules_existed" "$cron_existed" "无法计算修改后的 iptables 版本"
+		return $?
+	}
+	if [ "$final_version" = "$KPANEL_SYSTEM_RESOURCE_CURRENT_VERSION" ] &&
+		[ "$KPANEL_SYSTEM_RESOURCE_FIREWALL_PERSIST_CHANGED" = false ]; then
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit unchanged "$final_version"
+	else
+		rm -rf -- "$snapshot_dir"
+		kpanel_system_resource_emit applied "$final_version"
+	fi
+}
+
+kpanel_system_resource_run_locked() (
+	local resource="$1"
+	local action="$2"
+	local lock_file name=""
+	shift 2
+
+	[ "$resource" = "network-interface" ] && name="${2:-}"
+	lock_file="$(kpanel_system_resource_prepare_lock_file)" || {
+		kpanel_system_resource_error "system-resource 锁路径不安全或无法创建"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version "$resource" "$name")"
+		return 1
+	}
+	exec 9<>"$lock_file" || {
+		kpanel_system_resource_error "无法打开 system-resource 锁"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version "$resource" "$name")"
+		return 1
+	}
+	kpanel_system_resource_lock_path_secure "$lock_file" file 600 || {
+		exec 9>&-
+		kpanel_system_resource_error "system-resource 锁文件打开后验证失败"
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_best_version "$resource" "$name")"
+		return 1
+	}
+	if ! flock -w 5 -x 9 >/dev/null 2>&1; then
+		kpanel_system_resource_error "system-resource 写锁等待超时"
+		kpanel_system_resource_emit conflict "$(kpanel_system_resource_best_version "$resource" "$name")"
+		return 2
+	fi
+	case "$resource" in
+		hosts) kpanel_system_resource_hosts_action "$action" "$@" ;;
+		cron) kpanel_system_resource_cron_action "$action" "$@" ;;
+		network-interface) kpanel_system_resource_interface_action "$action" "$@" ;;
+		firewall) kpanel_system_resource_firewall_action "$action" "$@" ;;
+		*)
+			kpanel_system_resource_error "不支持的 system-resource 资源"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+			return 2
+			;;
+	esac
+)
+
+kpanel_system_resource_dispatch() {
+	local resource="${1:-}"
+	local action="${2:-}"
+	local rc
+
+	kpanel_system_resource_require_platform
+	rc=$?
+	[ "$rc" -eq 0 ] || return "$rc"
+	[ "$#" -ge 2 ] || {
+		kpanel_system_resource_error "用法: kpanel system-resource <resource> <action> ..."
+		kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+		return 2
+	}
+	case "$resource" in
+		hosts|cron|network-interface|firewall) ;;
+		*)
+			kpanel_system_resource_error "不支持的 system-resource 资源"
+			kpanel_system_resource_emit failed "$(kpanel_system_resource_zero_version)"
+			return 2
+			;;
+	esac
+	shift 2
+	kpanel_system_resource_run_locked "$resource" "$action" "$@"
+}
+
+# KPanel system resource protocol end
+
+
+# KPanel disk management protocol start
+KPANEL_DISK_MANAGEMENT_PROTOCOL_VERSION="1"
+
+kpanel_disk_management_hex_encode() {
+	local value="${1-}" encoded="" byte decimal index
+	local LC_ALL=C
+	for ((index = 0; index < ${#value}; index++)); do
+		byte="${value:index:1}"
+		printf -v decimal '%d' "'$byte"
+		printf -v byte '%02x' "$decimal"
+		encoded+="$byte"
+	done
+	printf '%s' "$encoded"
+}
+
+kpanel_disk_management_emit() {
+	local status="$1" device="${2:-}" message="${3:-}" backup="${4:-}"
+	case "$status" in
+		applied|unchanged|failed|conflict|needs-attention|rollback-failed) ;;
+		*) status=failed ;;
+	esac
+	[[ "$device" =~ ^[0-9]+:[0-9]+$ ]] || device=""
+	printf 'KPANEL_DISK_MANAGEMENT_STATUS=%s\n' "$status"
+	printf 'KPANEL_DISK_MANAGEMENT_DEVICE=%s\n' "$device"
+	printf 'KPANEL_DISK_MANAGEMENT_MESSAGE_HEX=%s\n' "$(kpanel_disk_management_hex_encode "$message")"
+	printf 'KPANEL_DISK_MANAGEMENT_BACKUP_HEX=%s\n' "$(kpanel_disk_management_hex_encode "$backup")"
+}
+
+kpanel_disk_management_error() {
+	printf '错误: %s\n' "$1" >&2
+}
+
+kpanel_disk_management_reply() {
+	local status="$1" device="$2" message="$3" backup="$4" result="$5"
+	case "$status" in applied|unchanged) ;; *) kpanel_disk_management_error "$message" ;; esac
+	kpanel_disk_management_emit "$status" "$device" "$message" "$backup"
+	return "$result"
+}
+
+kpanel_disk_management_lock_file() {
+	printf '%s\n' "/run/lock/kejilion-kpanel-disk.lock"
+}
+
+kpanel_disk_management_lock_owner_uid() {
+	printf '0\n'
+}
+
+kpanel_disk_management_lock_stat_uid() {
+	stat -c '%u' "$1" 2>/dev/null
+}
+
+kpanel_disk_management_lock_stat_mode() {
+	stat -c '%a' "$1" 2>/dev/null
+}
+
+kpanel_disk_management_lock_stat_gid() {
+	stat -c '%g' "$1" 2>/dev/null
+}
+
+kpanel_disk_management_lock_stat_links() {
+	stat -c '%h' "$1" 2>/dev/null
+}
+
+kpanel_disk_management_lock_parent_secure() {
+	local parent="$1" uid expected_uid gid mode numeric_mode
+	[ ! -L "$parent" ] && [ -d "$parent" ] || return 1
+	uid="$(kpanel_disk_management_lock_stat_uid "$parent")" || return 1
+	expected_uid="$(kpanel_disk_management_lock_owner_uid)" || return 1
+	[[ "$uid" =~ ^[0-9]+$ ]] && [ "$uid" = "$expected_uid" ] || return 1
+	mode="$(kpanel_disk_management_lock_stat_mode "$parent")" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+	numeric_mode=$((8#$mode))
+	# A newly created private parent is 0700. Existing system-managed /run/lock
+	# may be 0755/0775 or 1777; require root:root and sticky when world-writable.
+	[ "$((numeric_mode & 0777))" -eq 448 ] && return 0
+	gid="$(kpanel_disk_management_lock_stat_gid "$parent")" || return 1
+	[[ "$gid" =~ ^[0-9]+$ ]] && [ "$gid" = 0 ] || return 1
+	[ "$((numeric_mode & 0002))" -eq 0 ] || [ "$((numeric_mode & 01000))" -ne 0 ]
+}
+
+kpanel_disk_management_lock_file_secure() {
+	local path="$1" uid expected_uid mode links
+	[ ! -L "$path" ] && [ -f "$path" ] || return 1
+	uid="$(kpanel_disk_management_lock_stat_uid "$path")" || return 1
+	expected_uid="$(kpanel_disk_management_lock_owner_uid)" || return 1
+	[[ "$uid" =~ ^[0-9]+$ ]] && [ "$uid" = "$expected_uid" ] || return 1
+	mode="$(kpanel_disk_management_lock_stat_mode "$path")" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [ "$((8#$mode & 0777))" -eq 384 ] || return 1
+	links="$(kpanel_disk_management_lock_stat_links "$path")" || return 1
+	[[ "$links" =~ ^[0-9]+$ ]] && [ "$links" -eq 1 ]
+}
+
+kpanel_disk_management_prepare_lock_file() {
+	local lock_file parent parent_parent created=false
+	lock_file="$(kpanel_disk_management_lock_file)" || return 1
+	[[ "$lock_file" = /* ]] && [[ "$lock_file" != *$'\n'* ]] && [[ "$lock_file" != *$'\r'* ]] || return 1
+	parent="$(dirname -- "$lock_file")" || return 1
+	[ ! -L "$parent" ] || return 1
+	if [ ! -e "$parent" ]; then
+		parent_parent="$(dirname -- "$parent")" || return 1
+		[ -d "$parent_parent" ] && [ ! -L "$parent_parent" ] || return 1
+		(umask 077; mkdir -- "$parent") >/dev/null 2>&1 || return 1
+		chown 0:0 "$parent" >/dev/null 2>&1 && chmod 700 "$parent" >/dev/null 2>&1 || return 1
+	fi
+	kpanel_disk_management_lock_parent_secure "$parent" || return 1
+	[ ! -L "$lock_file" ] || return 1
+	if [ ! -e "$lock_file" ]; then
+		(umask 077; set -o noclobber; : > "$lock_file") >/dev/null 2>&1 || return 1
+		created=true
+	fi
+	[ -f "$lock_file" ] && [ ! -L "$lock_file" ] || return 1
+	if [ "$created" = true ]; then
+		chown 0:0 "$lock_file" >/dev/null 2>&1 && chmod 600 "$lock_file" >/dev/null 2>&1 || return 1
+	fi
+	kpanel_disk_management_lock_file_secure "$lock_file" || return 1
+	printf '%s\n' "$lock_file"
+}
+
+kpanel_disk_management_require_commands() {
+	local command_name
+	for command_name in "$@"; do
+		command -v "$command_name" >/dev/null 2>&1 || {
+			KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE="缺少必要命令: $command_name"
+			return 1
+		}
+	done
+}
+
+kpanel_disk_management_command_available() {
+	command -v "$1" >/dev/null 2>&1
+}
+
+kpanel_disk_management_require_platform() {
+	KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE=""
+	if [ "${KJ_DISK_MANAGEMENT_NONINTERACTIVE:-}" != "1" ]; then
+		KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE="KPanel disk-management 协议环境未启用"
+		return 2
+	fi
+	if [ "$EUID" -ne 0 ]; then
+		KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE="KPanel disk-management 协议必须以 root 运行"
+		return 2
+	fi
+	if ! command -v uname >/dev/null 2>&1; then
+		KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE="缺少必要命令: uname"
+		return 1
+	fi
+	if [ "$(uname -s 2>/dev/null)" != Linux ]; then
+		KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE="KPanel disk-management 协议仅支持 Linux"
+		return 2
+	fi
+	kpanel_disk_management_require_commands \
+		awk basename blkid chmod chown cp date dirname find findmnt flock grep lsblk mkdir mktemp \
+		mount mv readlink rm rmdir sha256sum stat sync umount uname wc
+}
+
+kpanel_disk_management_path_owner_uid() {
+	printf '0\n'
+}
+
+kpanel_disk_management_path_stat_uid() {
+	stat -c '%u' "$1" 2>/dev/null
+}
+
+kpanel_disk_management_path_stat_mode() {
+	stat -c '%a' "$1" 2>/dev/null
+}
+
+kpanel_disk_management_path_chain_secure() {
+	local path="$1" expected_uid remainder current component uid mode
+	local components=()
+	[[ "$path" = /* ]] && [ -d "$path" ] && [ ! -L "$path" ] || return 1
+	[ "$path" = / ] || kpanel_system_resource_path_has_no_symlink "$path" || return 1
+	expected_uid="$(kpanel_disk_management_path_owner_uid)" || return 1
+	[[ "$expected_uid" =~ ^[0-9]+$ ]] || return 1
+	current=/
+	remainder="${path#/}"
+	IFS=/ read -r -a components <<< "$remainder"
+	components=("/" "${components[@]}")
+	for component in "${components[@]}"; do
+		if [ "$component" != / ]; then
+			[ -n "$component" ] && [ "$component" != . ] && [ "$component" != .. ] || return 1
+			current="${current%/}/$component"
+		fi
+		[ -d "$current" ] && [ ! -L "$current" ] || return 1
+		uid="$(kpanel_disk_management_path_stat_uid "$current")" || return 1
+		mode="$(kpanel_disk_management_path_stat_mode "$current")" || return 1
+		[[ "$uid" =~ ^[0-9]+$ ]] && [ "$uid" = "$expected_uid" ] || return 1
+		[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [ "$((8#$mode & 0022))" -eq 0 ] || return 1
+	done
+}
+
+kpanel_disk_management_mountpoint_path_secure() {
+	local mountpoint="$1" allow_missing="$2" parent
+	kpanel_system_resource_path_has_no_symlink "$mountpoint" || return 1
+	if [ -e "$mountpoint" ] || [ -L "$mountpoint" ]; then
+		[ -d "$mountpoint" ] && [ ! -L "$mountpoint" ] || return 1
+		kpanel_disk_management_path_chain_secure "$mountpoint"
+		return $?
+	fi
+	[ "$allow_missing" = true ] || return 1
+	parent="$(dirname -- "$mountpoint")" || return 1
+	kpanel_disk_management_path_chain_secure "$parent"
+}
+
+kpanel_disk_management_mountpoint_parent_secure() {
+	local mountpoint="$1" allow_missing="$2" parent
+	kpanel_system_resource_path_has_no_symlink "$mountpoint" || return 1
+	if [ -e "$mountpoint" ] || [ -L "$mountpoint" ]; then
+		[ -d "$mountpoint" ] && [ ! -L "$mountpoint" ] || return 1
+	else
+		[ "$allow_missing" = true ] || return 1
+	fi
+	parent="$(dirname -- "$mountpoint")" || return 1
+	kpanel_disk_management_path_chain_secure "$parent"
+}
+
+kpanel_disk_management_decode_mountpoint() {
+	local encoded="$1" decoded="" canonical pair byte decimal index protected parent leaf canonical_parent
+	local LC_ALL=C
+	[ -n "$encoded" ] && [ "${#encoded}" -le 8192 ] && [ "$(( ${#encoded} % 2 ))" -eq 0 ] || return 1
+	[[ "$encoded" =~ ^[0-9a-fA-F]+$ ]] || return 1
+	for ((index = 0; index < ${#encoded}; index += 2)); do
+		pair="${encoded:index:2}"
+		decimal=$((16#$pair))
+		[ "$decimal" -ge 32 ] && [ "$decimal" -ne 127 ] || return 1
+		printf -v byte '%b' "\\x$pair"
+		decoded+="$byte"
+	done
+	[ -n "$decoded" ] && [[ "$decoded" = /* ]] || return 1
+	[[ "$decoded" != *$'\n'* ]] && [[ "$decoded" != *$'\r'* ]] || return 1
+	if [ -e "$decoded" ] || [ -L "$decoded" ]; then
+		canonical="$(readlink -f -- "$decoded" 2>/dev/null)" || return 1
+	else
+		parent="$(dirname -- "$decoded")" || return 1
+		leaf="$(basename -- "$decoded")" || return 1
+		[ -n "$leaf" ] && [ "$leaf" != . ] && [ "$leaf" != .. ] || return 1
+		canonical_parent="$(readlink -f -- "$parent" 2>/dev/null)" || return 1
+		[ -d "$canonical_parent" ] && [ ! -L "$canonical_parent" ] || return 1
+		canonical="${canonical_parent%/}/$leaf"
+	fi
+	[ "$canonical" = "$decoded" ] || return 1
+	[ "$decoded" != / ] || return 1
+	for protected in /boot /boot/efi /home /var/lib/kejilion-panel /home/docker; do
+		case "$decoded" in "$protected"|"$protected"/*) return 1 ;; esac
+		case "$protected" in "$decoded"/*) return 1 ;; esac
+	done
+	KPANEL_DISK_MANAGEMENT_MOUNTPOINT="$decoded"
+	KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX="$(kpanel_disk_management_hex_encode "$decoded")"
+}
+
+kpanel_disk_management_is_block_device() {
+	[ -b "$1" ]
+}
+
+kpanel_disk_management_resolve_device() {
+	local requested="$1" output line device_id device_path extra resolved verify matches=0 invalid=false
+	[[ "$requested" =~ ^[0-9]+:[0-9]+$ ]] || return 2
+	output="$(lsblk --noheadings --raw --paths --output MAJ:MIN,PATH 2>/dev/null)" || return 1
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		device_id=""; device_path=""; extra=""
+		read -r device_id device_path extra <<< "$line"
+		if [ -n "$extra" ] || [[ ! "$device_id" =~ ^[0-9]+:[0-9]+$ ]] || [[ "$device_path" != /dev/* ]]; then
+			invalid=true
+			continue
+		fi
+		if [ "$device_id" = "$requested" ]; then
+			matches=$((matches + 1))
+			KPANEL_DISK_MANAGEMENT_LISTED_PATH="$device_path"
+		fi
+	done <<< "$output"
+	[ "$invalid" = false ] && [ "$matches" -eq 1 ] || return 1
+	resolved="$(readlink -f -- "$KPANEL_DISK_MANAGEMENT_LISTED_PATH" 2>/dev/null)" || return 1
+	[[ "$resolved" = /dev/* ]] && kpanel_disk_management_is_block_device "$resolved" || return 1
+	verify="$(lsblk --nodeps --noheadings --raw --output MAJ:MIN -- "$resolved" 2>/dev/null)" || return 1
+	[ "$verify" = "$requested" ] || return 1
+	KPANEL_DISK_MANAGEMENT_DEVICE_PATH="$resolved"
+	KPANEL_DISK_MANAGEMENT_DEVICE_ID="$requested"
+}
+
+kpanel_disk_management_lsblk_value() {
+	local path="$1" column="$2" value
+	case "$column" in TYPE|RO|FSTYPE) ;; *) return 1 ;; esac
+	value="$(lsblk --nodeps --noheadings --raw --output "$column" -- "$path" 2>/dev/null)" || return 1
+	[[ "$value" != *$'\n'* ]] && [[ "$value" != *$'\r'* ]] || return 1
+	printf '%s' "$value"
+}
+
+kpanel_disk_management_swaps_file() {
+	printf '%s\n' "/proc/swaps"
+}
+
+kpanel_disk_management_device_is_active_swap() {
+	local device="$1" swaps source rest resolved
+	swaps="$(kpanel_disk_management_swaps_file)" || return 2
+	[ -r "$swaps" ] || return 2
+	while read -r source rest; do
+		[ -n "$source" ] || continue
+		[ "$source" != Filename ] || continue
+		case "$source" in
+			/dev/*)
+				resolved="$(readlink -f -- "$source" 2>/dev/null)" || return 2
+				[ "$resolved" != "$device" ] || return 0
+				;;
+		esac
+	done < "$swaps"
+	return 1
+}
+
+kpanel_disk_management_validate_device_common() {
+	local type ro fstype probed probe_rc swap_rc
+	type="$(kpanel_disk_management_lsblk_value "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" TYPE)" || return 1
+	ro="$(kpanel_disk_management_lsblk_value "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" RO)" || return 1
+	fstype="$(kpanel_disk_management_lsblk_value "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" FSTYPE)" || return 1
+	[[ "$type" =~ ^[A-Za-z0-9._+-]+$ ]] || return 1
+	[[ "$ro" =~ ^[01]$ ]] || return 1
+	[ -z "$fstype" ] || [[ "$fstype" =~ ^[A-Za-z0-9._+-]+$ ]] || return 1
+	probed="$(blkid -p -c /dev/null -s TYPE -o value "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" 2>/dev/null)"
+	probe_rc=$?
+	case "$probe_rc" in
+		0)
+			[[ "$probed" =~ ^[A-Za-z0-9._+-]+$ ]] || return 1
+			fstype="$probed"
+			;;
+		2) [ -z "$fstype" ] || return 1 ;;
+		*) return 1 ;;
+	esac
+	[ "$ro" = 0 ] || return 3
+	[ "$fstype" != swap ] || return 3
+	kpanel_disk_management_device_is_active_swap "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH"
+	swap_rc=$?
+	[ "$swap_rc" -ne 0 ] || return 3
+	[ "$swap_rc" -eq 1 ] || return 1
+	KPANEL_DISK_MANAGEMENT_DEVICE_TYPE="$type"
+	KPANEL_DISK_MANAGEMENT_FSTYPE="$fstype"
+}
+
+kpanel_disk_management_device_is_leaf() {
+	local path="$1" expected="$2" output line count=0
+	output="$(lsblk --noheadings --raw --output MAJ:MIN -- "$path" 2>/dev/null)" || return 2
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		[[ "$line" =~ ^[0-9]+:[0-9]+$ ]] || return 2
+		[ "$count" -ne 0 ] || [ "$line" = "$expected" ] || return 2
+		count=$((count + 1))
+	done <<< "$output"
+	[ "$count" -eq 1 ]
+}
+
+kpanel_disk_management_holders_dir() {
+	printf '/sys/dev/block/%s/holders\n' "$1"
+}
+
+kpanel_disk_management_device_has_holders() {
+	local device_id="$1" directory first
+	directory="$(kpanel_disk_management_holders_dir "$device_id")" || return 2
+	[ -d "$directory" ] || return 2
+	first="$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || return 2
+	[ -n "$first" ]
+}
+
+kpanel_disk_management_mount_ids() {
+	local output line
+	output="$(findmnt --kernel --raw --noheadings --output MAJ:MIN 2>/dev/null)" || return 2
+	[ -n "$output" ] || return 2
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		[[ "$line" =~ ^[0-9]+:[0-9]+$ ]] || return 2
+		printf '%s\n' "$line"
+	done <<< "$output"
+}
+
+kpanel_disk_management_device_is_mounted() {
+	local requested="$1" output line
+	output="$(kpanel_disk_management_mount_ids)" || return 2
+	while IFS= read -r line; do
+		[ "$line" != "$requested" ] || return 0
+	done <<< "$output"
+	return 1
+}
+
+kpanel_disk_management_target_device() {
+	local mountpoint="$1" output rc
+	output="$(findmnt --kernel --raw --noheadings --output MAJ:MIN --mountpoint "$mountpoint" 2>/dev/null)"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		[ "$rc" -eq 1 ] && [ -z "$output" ] && return 1
+		return 2
+	fi
+	[[ "$output" =~ ^[0-9]+:[0-9]+$ ]] || return 2
+	printf '%s' "$output"
+}
+
+kpanel_disk_management_require_leaf_unmounted() {
+	local leaf_rc holders_rc mounted_rc
+	kpanel_disk_management_device_is_leaf "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" "$KPANEL_DISK_MANAGEMENT_DEVICE_ID"
+	leaf_rc=$?
+	[ "$leaf_rc" -eq 0 ] || { [ "$leaf_rc" -eq 1 ] && return 3; return 1; }
+	kpanel_disk_management_device_has_holders "$KPANEL_DISK_MANAGEMENT_DEVICE_ID"
+	holders_rc=$?
+	[ "$holders_rc" -ne 0 ] || return 3
+	[ "$holders_rc" -eq 1 ] || return 1
+	kpanel_disk_management_device_is_mounted "$KPANEL_DISK_MANAGEMENT_DEVICE_ID"
+	mounted_rc=$?
+	[ "$mounted_rc" -ne 0 ] || return 3
+	[ "$mounted_rc" -eq 1 ] || return 1
+}
+
+kpanel_disk_management_fstab_file() {
+	printf '%s\n' "/etc/fstab"
+}
+
+kpanel_disk_management_state_root() {
+	printf '%s/system/disk-management\n' "$(kpanel_system_resource_state_root)"
+}
+
+kpanel_disk_management_prepare_state_subdir() {
+	local name="$1" root path
+	case "$name" in mountpoints|recovery) ;; *) return 1 ;; esac
+	root="$(kpanel_disk_management_state_root)" || return 1
+	[[ "$root" = /* ]] && [ "$root" != / ] || return 1
+	kpanel_system_resource_path_has_no_symlink "$root" || return 1
+	if [ ! -e "$root" ]; then
+		(umask 077; mkdir -p -- "$root") >/dev/null 2>&1 || return 1
+	fi
+	kpanel_system_resource_path_has_no_symlink "$root" &&
+		kpanel_system_resource_secure_directory "$root" || return 1
+	path="$root/$name"
+	kpanel_system_resource_path_has_no_symlink "$path" || return 1
+	if [ ! -e "$path" ]; then
+		(umask 077; mkdir -- "$path") >/dev/null 2>&1 || return 1
+	fi
+	kpanel_system_resource_path_has_no_symlink "$path" &&
+		kpanel_system_resource_secure_directory "$path" || return 1
+	printf '%s\n' "$path"
+}
+
+kpanel_disk_management_fstab_escape() {
+	local value="$1"
+	value="${value//\\/\\134}"
+	value="${value// /\\040}"
+	printf '%s' "$value"
+}
+
+kpanel_disk_management_persistence_source() {
+	local path="$1" value rc
+	value="$(blkid -c /dev/null -s UUID -o value "$path" 2>/dev/null)"
+	rc=$?
+	if [ "$rc" -eq 0 ]; then
+		[[ "$value" =~ ^[A-Za-z0-9._:+-]+$ ]] || return 1
+		KPANEL_DISK_MANAGEMENT_PERSISTENCE_SOURCE="UUID=$value"
+		return 0
+	fi
+	[ "$rc" -eq 2 ] || return 1
+	value="$(blkid -c /dev/null -s PARTUUID -o value "$path" 2>/dev/null)"
+	rc=$?
+	if [ "$rc" -eq 0 ]; then
+		[[ "$value" =~ ^[A-Za-z0-9._:+-]+$ ]] || return 1
+		KPANEL_DISK_MANAGEMENT_PERSISTENCE_SOURCE="PARTUUID=$value"
+		return 0
+	fi
+	[ "$rc" -eq 2 ] || return 1
+	return 2
+}
+
+kpanel_disk_management_probe_fstype() {
+	local path="$1" value
+	value="$(blkid -p -c /dev/null -s TYPE -o value "$path" 2>/dev/null)" || return 1
+	[[ "$value" =~ ^[A-Za-z0-9._+-]+$ ]] || return 1
+	printf '%s' "$value"
+}
+
+kpanel_disk_management_cleanup_incomplete_backup() {
+	local snapshot="$1"
+	[ -d "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
+	rm -f -- "$snapshot/fstab" "$snapshot/mode" "$snapshot/owner" >/dev/null 2>&1 || return 1
+	rmdir -- "$snapshot" >/dev/null 2>&1
+}
+
+kpanel_disk_management_fstab_backup_valid() (
+	local snapshot="$1" recovery="$2" name expected_uid uid mode links entry count=0 file saved_mode saved_owner
+	local entries=()
+	[ "$(dirname -- "$snapshot")" = "$recovery" ] || return 1
+	name="${snapshot##*/}"
+	[[ "$name" =~ ^[0-9]{8}T[0-9]{6}Z-fstab\.[A-Za-z0-9]{6}$ ]] || return 1
+	kpanel_system_resource_path_has_no_symlink "$snapshot" || return 1
+	[ -d "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
+	expected_uid="$(kpanel_disk_management_path_owner_uid)" || return 1
+	uid="$(kpanel_disk_management_path_stat_uid "$snapshot")" || return 1
+	mode="$(kpanel_disk_management_path_stat_mode "$snapshot")" || return 1
+	[[ "$expected_uid" =~ ^[0-9]+$ ]] && [ "$uid" = "$expected_uid" ] || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [ "$((8#$mode & 0777))" -eq 448 ] || return 1
+	shopt -s nullglob dotglob
+	entries=("$snapshot"/*)
+	for entry in "${entries[@]}"; do
+		case "$entry" in
+			"$snapshot/fstab"|"$snapshot/mode"|"$snapshot/owner") ;;
+			*) return 1 ;;
+		esac
+		count=$((count + 1))
+	done
+	[ "$count" -eq 3 ] || return 1
+	for file in "$snapshot/fstab" "$snapshot/mode" "$snapshot/owner"; do
+		[ -f "$file" ] && [ ! -L "$file" ] || return 1
+		uid="$(kpanel_disk_management_path_stat_uid "$file")" || return 1
+		mode="$(kpanel_disk_management_path_stat_mode "$file")" || return 1
+		links="$(kpanel_disk_management_lock_stat_links "$file")" || return 1
+		[ "$uid" = "$expected_uid" ] && [[ "$mode" =~ ^[0-7]{3,4}$ ]] && [[ "$links" =~ ^[0-9]+$ ]] &&
+			[ "$((8#$mode & 0777))" -eq 384 ] && [ "$links" -eq 1 ] || return 1
+	done
+	kpanel_system_resource_file_within_bounds "$snapshot/fstab" 1048576 16384 || return 1
+	saved_mode="$(<"$snapshot/mode")" || return 1
+	saved_owner="$(<"$snapshot/owner")" || return 1
+	[[ "$saved_mode" =~ ^[0-7]{3,4}$ ]] && [[ "$saved_owner" =~ ^[0-9]+:[0-9]+$ ]]
+)
+
+kpanel_disk_management_remove_fstab_backup() {
+	local snapshot="$1" recovery="$2"
+	kpanel_disk_management_fstab_backup_valid "$snapshot" "$recovery" || return 1
+	rm -f -- "$snapshot/fstab" "$snapshot/mode" "$snapshot/owner" >/dev/null 2>&1 || return 1
+	rmdir -- "$snapshot" >/dev/null 2>&1
+}
+
+kpanel_disk_management_prune_fstab_backups() (
+	local limit="$1" protected="${2:-}" recovery="${3:-}" entry remaining index=0
+	local entries=()
+	local LC_ALL=C
+	[[ "$limit" =~ ^[0-9]+$ ]] || return 1
+	[ -n "$recovery" ] || recovery="$(kpanel_disk_management_prepare_state_subdir recovery)" || return 1
+	[ -d "$recovery" ] && [ ! -L "$recovery" ] || return 1
+	shopt -s nullglob dotglob
+	entries=("$recovery"/*)
+	for entry in "${entries[@]}"; do
+		kpanel_disk_management_fstab_backup_valid "$entry" "$recovery" || return 1
+	done
+	if [ -n "$protected" ]; then
+		kpanel_disk_management_fstab_backup_valid "$protected" "$recovery" || return 1
+	fi
+	remaining="${#entries[@]}"
+	while [ "$remaining" -gt "$limit" ]; do
+		[ "$index" -lt "${#entries[@]}" ] || return 1
+		entry="${entries[$index]}"
+		index=$((index + 1))
+		[ "$entry" != "$protected" ] || continue
+		kpanel_disk_management_remove_fstab_backup "$entry" "$recovery" || return 1
+		remaining=$((remaining - 1))
+	done
+)
+
+kpanel_disk_management_create_fstab_backup() {
+	local fstab="$1" recovery timestamp snapshot mode owner
+	recovery="$(kpanel_disk_management_prepare_state_subdir recovery)" || return 1
+	kpanel_disk_management_prune_fstab_backups 15 "" "$recovery" || return 1
+	timestamp="$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)" || return 1
+	[[ "$timestamp" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || return 1
+	snapshot="$(mktemp -d "$recovery/${timestamp}-fstab.XXXXXX")" || return 1
+	chmod 700 "$snapshot" >/dev/null 2>&1 && chown 0:0 "$snapshot" >/dev/null 2>&1 || {
+		kpanel_disk_management_cleanup_incomplete_backup "$snapshot" >/dev/null 2>&1 || true
+		return 1
+	}
+	mode="$(stat -c '%a' "$fstab" 2>/dev/null)" || { kpanel_disk_management_cleanup_incomplete_backup "$snapshot"; return 1; }
+	owner="$(stat -c '%u:%g' "$fstab" 2>/dev/null)" || { kpanel_disk_management_cleanup_incomplete_backup "$snapshot"; return 1; }
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]] || {
+		kpanel_disk_management_cleanup_incomplete_backup "$snapshot" >/dev/null 2>&1 || true
+		return 1
+	}
+	cp -- "$fstab" "$snapshot/fstab" >/dev/null 2>&1 &&
+		printf '%s\n' "$mode" > "$snapshot/mode" &&
+		printf '%s\n' "$owner" > "$snapshot/owner" || {
+		kpanel_disk_management_cleanup_incomplete_backup "$snapshot" >/dev/null 2>&1 || true
+		return 1
+	}
+	chown 0:0 "$snapshot/fstab" "$snapshot/mode" "$snapshot/owner" >/dev/null 2>&1 &&
+		chmod 600 "$snapshot/fstab" "$snapshot/mode" "$snapshot/owner" >/dev/null 2>&1 &&
+		sync -f "$snapshot/fstab" >/dev/null 2>&1 && sync -f "$snapshot" >/dev/null 2>&1 || {
+		kpanel_disk_management_cleanup_incomplete_backup "$snapshot" >/dev/null 2>&1 || true
+		return 1
+	}
+	kpanel_disk_management_fstab_backup_valid "$snapshot" "$recovery" || {
+		kpanel_disk_management_cleanup_incomplete_backup "$snapshot" >/dev/null 2>&1 || true
+		return 1
+	}
+	printf '%s\n' "$snapshot"
+}
+
+kpanel_disk_management_restore_fstab() {
+	local fstab="$1" snapshot="$2" directory temporary mode owner recovery
+	recovery="$(kpanel_disk_management_prepare_state_subdir recovery)" || return 1
+	kpanel_disk_management_fstab_backup_valid "$snapshot" "$recovery" || return 1
+	mode="$(<"$snapshot/mode")" || return 1
+	owner="$(<"$snapshot/owner")" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+	directory="$(dirname -- "$fstab")" || return 1
+	temporary="$(mktemp "$directory/.fstab.kpanel-restore.XXXXXX")" || return 1
+	cp -- "$snapshot/fstab" "$temporary" >/dev/null 2>&1 &&
+		chown "$owner" "$temporary" >/dev/null 2>&1 && chmod "$mode" "$temporary" >/dev/null 2>&1 &&
+		findmnt --verify --tab-file "$temporary" >&2 && sync -f "$temporary" >/dev/null 2>&1 &&
+		mv -f -- "$temporary" "$fstab" >/dev/null 2>&1 && sync -f "$fstab" >/dev/null 2>&1 &&
+		sync -f "$directory" >/dev/null 2>&1 || {
+		rm -f -- "$temporary" >/dev/null 2>&1
+		return 1
+	}
+	findmnt --verify --tab-file "$fstab" >&2
+}
+
+kpanel_disk_management_fstab_transaction() {
+	local operation="$1" source="$2" mountpoint="$3" fstype="$4"
+	local fstab directory escaped_target desired="" pass_number=0 analysis exact desired_count conflict extra temporary backup uid mode
+	KPANEL_DISK_MANAGEMENT_FSTAB_CHANGED=false
+	KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP=""
+	KPANEL_DISK_MANAGEMENT_FSTAB_ROLLBACK_FAILED=false
+	case "$operation" in ensure|remove) ;; *) return 1 ;; esac
+	[[ "$source" =~ ^(UUID|PARTUUID)=[A-Za-z0-9._:+-]+$ ]] || return 1
+	if [ "$operation" = ensure ]; then
+		[[ "$fstype" =~ ^[A-Za-z0-9._+-]+$ ]] || return 1
+	fi
+	fstab="$(kpanel_disk_management_fstab_file)" || return 1
+	[ -f "$fstab" ] && [ ! -L "$fstab" ] || return 1
+	kpanel_system_resource_path_has_no_symlink "$fstab" || return 1
+	kpanel_system_resource_file_within_bounds "$fstab" 1048576 16384 || return 1
+	uid="$(kpanel_disk_management_path_stat_uid "$fstab")" || return 1
+	mode="$(kpanel_disk_management_path_stat_mode "$fstab")" || return 1
+	[ "$uid" = "$(kpanel_disk_management_path_owner_uid)" ] && [[ "$mode" =~ ^[0-7]{3,4}$ ]] &&
+		[ "$((8#$mode & 0022))" -eq 0 ] || return 1
+	directory="$(dirname -- "$fstab")" || return 1
+	[ -d "$directory" ] && [ ! -L "$directory" ] || return 1
+	escaped_target="$(kpanel_disk_management_fstab_escape "$mountpoint")" || return 1
+	case "$fstype" in ext2|ext3|ext4) pass_number=2 ;; esac
+	desired="$source $escaped_target $fstype defaults,nofail 0 $pass_number"
+	analysis="$(awk -v source="$source" -v target="$escaped_target" -v desired="$desired" -v operation="$operation" '
+		BEGIN { exact=0; desired_count=0; conflict=0 }
+		{
+			active=($0 !~ /^[[:space:]]*#/ && $0 !~ /^[[:space:]]*$/)
+			if (active && NF >= 2) {
+				if ($1 == source && $2 == target) {
+					exact++
+					if ($0 == desired) desired_count++
+				} else if ($2 == target || (operation == "ensure" && $1 == source)) {
+					conflict=1
+				}
+			}
+		}
+		END { printf "%d %d %d\n", exact, desired_count, conflict }
+	' "$fstab" 2>/dev/null)" || return 1
+	read -r exact desired_count conflict extra <<< "$analysis"
+	[ -z "$extra" ] && [[ "$exact" =~ ^[0-9]+$ ]] && [[ "$desired_count" =~ ^[0-9]+$ ]] &&
+		[[ "$conflict" =~ ^[01]$ ]] || return 1
+	[ "$conflict" -eq 0 ] || return 2
+	findmnt --verify --tab-file "$fstab" >&2 || return 1
+	kpanel_disk_management_prune_fstab_backups 16 || return 1
+	if [ "$operation" = ensure ] && [ "$exact" -eq 1 ] && [ "$desired_count" -eq 1 ]; then
+		return 0
+	fi
+	if [ "$operation" = remove ] && [ "$exact" -eq 0 ]; then
+		return 0
+	fi
+	temporary="$(mktemp "$directory/.fstab.kpanel.XXXXXX")" || return 1
+	awk -v source="$source" -v target="$escaped_target" '
+		{
+			active=($0 !~ /^[[:space:]]*#/ && $0 !~ /^[[:space:]]*$/)
+			if (active && NF >= 2 && $1 == source && $2 == target) next
+			print
+		}
+	' "$fstab" > "$temporary" || { rm -f -- "$temporary"; return 1; }
+	if [ "$operation" = ensure ]; then
+		printf '%s\n' "$desired" >> "$temporary" || { rm -f -- "$temporary"; return 1; }
+	fi
+	kpanel_system_resource_copy_identity "$fstab" "$temporary" || { rm -f -- "$temporary"; return 1; }
+	findmnt --verify --tab-file "$temporary" >&2 || { rm -f -- "$temporary"; return 1; }
+	backup="$(kpanel_disk_management_create_fstab_backup "$fstab")" || { rm -f -- "$temporary"; return 1; }
+	KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP="$backup"
+	if ! sync -f "$temporary" >/dev/null 2>&1 ||
+		! mv -f -- "$temporary" "$fstab" >/dev/null 2>&1 ||
+		! sync -f "$fstab" >/dev/null 2>&1 ||
+		! sync -f "$directory" >/dev/null 2>&1 ||
+		! findmnt --verify --tab-file "$fstab" >&2; then
+		rm -f -- "$temporary" >/dev/null 2>&1
+		if ! kpanel_disk_management_restore_fstab "$fstab" "$backup"; then
+			KPANEL_DISK_MANAGEMENT_FSTAB_ROLLBACK_FAILED=true
+		fi
+		return 1
+	fi
+	KPANEL_DISK_MANAGEMENT_FSTAB_CHANGED=true
+}
+
+kpanel_disk_management_mountpoint_marker_path() {
+	local mountpoint="$1" directory digest
+	directory="$(kpanel_disk_management_prepare_state_subdir mountpoints)" || return 1
+	digest="$(printf '%s' "$mountpoint" | sha256sum 2>/dev/null | awk '{print $1}')" || return 1
+	[[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+	printf '%s/%s.mountpoint\n' "$directory" "$digest"
+}
+
+kpanel_disk_management_marker_valid() {
+	local marker="$1" device_id="$2" mountpoint_hex="$3" uid mode links
+	[ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+	uid="$(kpanel_disk_management_path_stat_uid "$marker")" || return 1
+	mode="$(kpanel_disk_management_path_stat_mode "$marker")" || return 1
+	links="$(kpanel_disk_management_lock_stat_links "$marker")" || return 1
+	[ "$uid" = "$(kpanel_disk_management_path_owner_uid)" ] && [[ "$mode" =~ ^[0-7]{3,4}$ ]] &&
+		[[ "$links" =~ ^[0-9]+$ ]] && [ "$((8#$mode & 0777))" -eq 384 ] && [ "$links" -eq 1 ] || return 1
+	kpanel_system_resource_file_within_bounds "$marker" 8192 8 || return 1
+	grep -Fqx 'protocol=1' "$marker" &&
+		grep -Fqx "device=$device_id" "$marker" &&
+		grep -Fqx "mountpoint_hex=$mountpoint_hex" "$marker"
+}
+
+kpanel_disk_management_record_mountpoint() {
+	local device_id="$1" mountpoint="$2" mountpoint_hex="$3" marker directory temporary
+	marker="$(kpanel_disk_management_mountpoint_marker_path "$mountpoint")" || return 1
+	directory="$(dirname -- "$marker")" || return 1
+	[ ! -L "$marker" ] || return 1
+	if [ -e "$marker" ]; then
+		kpanel_disk_management_marker_valid "$marker" "$device_id" "$mountpoint_hex"
+		return $?
+	fi
+	temporary="$(mktemp "$directory/.mountpoint.XXXXXX")" || return 1
+	printf 'protocol=1\ndevice=%s\nmountpoint_hex=%s\n' "$device_id" "$mountpoint_hex" > "$temporary" || {
+		rm -f -- "$temporary"
+		return 1
+	}
+	chown 0:0 "$temporary" >/dev/null 2>&1 && chmod 600 "$temporary" >/dev/null 2>&1 &&
+		sync -f "$temporary" >/dev/null 2>&1 && mv -f -- "$temporary" "$marker" >/dev/null 2>&1 &&
+		sync -f "$directory" >/dev/null 2>&1 || {
+		rm -f -- "$temporary"
+		return 1
+	}
+	kpanel_disk_management_marker_valid "$marker" "$device_id" "$mountpoint_hex"
+}
+
+kpanel_disk_management_forget_mountpoint() {
+	local device_id="$1" mountpoint="$2" mountpoint_hex="$3" marker directory content
+	marker="$(kpanel_disk_management_mountpoint_marker_path "$mountpoint" 2>/dev/null)" || return 0
+	kpanel_disk_management_marker_valid "$marker" "$device_id" "$mountpoint_hex" || return 0
+	[ -d "$mountpoint" ] && [ ! -L "$mountpoint" ] || return 0
+	content="$(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || return 0
+	[ -z "$content" ] || return 0
+	rmdir -- "$mountpoint" >/dev/null 2>&1 || return 0
+	directory="$(dirname -- "$marker")" || return 0
+	rm -f -- "$marker" >/dev/null 2>&1 || return 0
+	sync -f "$directory" >/dev/null 2>&1 || true
+}
+
+kpanel_disk_management_cleanup_new_mountpoint() {
+	local device_id="$1" mountpoint="$2" mountpoint_hex="$3" marker
+	marker="$(kpanel_disk_management_mountpoint_marker_path "$mountpoint" 2>/dev/null || true)"
+	if [ -n "$marker" ] && kpanel_disk_management_marker_valid "$marker" "$device_id" "$mountpoint_hex"; then
+		rm -f -- "$marker" >/dev/null 2>&1 || true
+	fi
+	[ -d "$mountpoint" ] && [ ! -L "$mountpoint" ] && rmdir -- "$mountpoint" >/dev/null 2>&1 || true
+}
+
+kpanel_disk_management_prepare_device() {
+	local device_id="$1" rc
+	KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE=""
+	kpanel_disk_management_resolve_device "$device_id"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE="无法按 MAJ:MIN 唯一解析安全块设备"
+		return 1
+	fi
+	kpanel_disk_management_validate_device_common
+	rc=$?
+	case "$rc" in
+		0) return 0 ;;
+		3)
+			KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE="设备为只读设备或 Swap，拒绝操作"
+			return 3
+			;;
+		*)
+			KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE="无法可靠读取设备属性"
+			return 1
+			;;
+	esac
+}
+
+kpanel_disk_management_require_safe_leaf() {
+	local rc
+	kpanel_disk_management_require_leaf_unmounted
+	rc=$?
+	case "$rc" in
+		0) return 0 ;;
+		3)
+			KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE="设备已挂载、存在子设备或仍被 holder 使用"
+			return 3
+			;;
+		*)
+			KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE="无法可靠确认设备拓扑或挂载状态"
+			return 1
+			;;
+	esac
+}
+
+kpanel_disk_management_rollback_live_mount() {
+	local device_id="$1" mountpoint="$2" created="$3" mountpoint_hex="$4" target rc
+	target="$(kpanel_disk_management_target_device "$mountpoint")"
+	rc=$?
+	if [ "$rc" -eq 0 ]; then
+		[ "$target" = "$device_id" ] || return 1
+		umount -- "$mountpoint" >&2 || return 1
+		target="$(kpanel_disk_management_target_device "$mountpoint")"
+		rc=$?
+		[ "$rc" -eq 1 ] || return 1
+	elif [ "$rc" -ne 1 ]; then
+		return 1
+	fi
+	if [ "$created" = true ]; then
+		kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$mountpoint" "$mountpoint_hex"
+	fi
+}
+
+kpanel_disk_management_restore_live_mount() {
+	local device_id="$1" device_path="$2" mountpoint="$3" target rc
+	mount --source "$device_path" --target "$mountpoint" >&2 || return 1
+	target="$(kpanel_disk_management_target_device "$mountpoint")"
+	rc=$?
+	[ "$rc" -eq 0 ] && [ "$target" = "$device_id" ]
+}
+
+kpanel_disk_management_mount_action() {
+	local device_id="$1" mountpoint_hex="$2" persist="$3"
+	local rc target mounted_rc content parent created=false source_rc fstab_rc backup=""
+	if ! kpanel_disk_management_decode_mountpoint "$mountpoint_hex"; then
+		kpanel_disk_management_reply failed "$device_id" "挂载点编码、规范路径或保护路径校验失败" "" 2
+		return $?
+	fi
+	if ! kpanel_disk_management_mountpoint_parent_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" true; then
+		kpanel_disk_management_reply needs-attention "$device_id" "挂载点路径包含符号链接、非 root 目录或可被非 root 写入" "" 3
+		return $?
+	fi
+	kpanel_disk_management_prepare_device "$device_id"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 3 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 3
+		else
+			kpanel_disk_management_reply failed "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 1
+		fi
+		return $?
+	fi
+	[ -n "$KPANEL_DISK_MANAGEMENT_FSTYPE" ] || {
+		kpanel_disk_management_reply needs-attention "$device_id" "设备没有可挂载的已知文件系统" "" 3
+		return $?
+	}
+	case "$KPANEL_DISK_MANAGEMENT_FSTYPE" in
+		swap|LVM2_member|linux_raid_member|crypto_LUKS|zfs_member)
+			kpanel_disk_management_reply needs-attention "$device_id" "设备签名不是可直接挂载的文件系统" "" 3
+			return $?
+			;;
+	esac
+	target="$(kpanel_disk_management_target_device "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT")"
+	rc=$?
+	if [ "$rc" -eq 0 ]; then
+		[ "$target" = "$device_id" ] || {
+			kpanel_disk_management_reply needs-attention "$device_id" "目标已被其他设备占用" "" 3
+			return $?
+		}
+		if [ "$persist" = 1 ]; then
+			kpanel_disk_management_persistence_source "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH"
+			source_rc=$?
+			if [ "$source_rc" -ne 0 ]; then
+				if [ "$source_rc" -eq 2 ]; then
+					kpanel_disk_management_reply needs-attention "$device_id" "设备缺少 UUID/PARTUUID，无法安全持久化" "" 3
+				else
+					kpanel_disk_management_reply failed "$device_id" "无法读取设备持久化标识" "" 1
+				fi
+				return $?
+			fi
+			kpanel_disk_management_fstab_transaction ensure "$KPANEL_DISK_MANAGEMENT_PERSISTENCE_SOURCE" \
+				"$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_FSTYPE"
+			fstab_rc=$?
+			backup="$KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP"
+			if [ "$fstab_rc" -ne 0 ]; then
+				if [ "$KPANEL_DISK_MANAGEMENT_FSTAB_ROLLBACK_FAILED" = true ]; then
+					kpanel_disk_management_reply rollback-failed "$device_id" "fstab 更新失败且配置回滚失败，需要人工恢复" "$backup" 4
+				elif [ "$fstab_rc" -eq 2 ]; then
+					kpanel_disk_management_reply needs-attention "$device_id" "fstab 存在设备或挂载点冲突" "$backup" 3
+				else
+					kpanel_disk_management_reply failed "$device_id" "fstab 持久化失败，原有实时挂载保持不变" "$backup" 1
+				fi
+				return $?
+			fi
+			if [ "$KPANEL_DISK_MANAGEMENT_FSTAB_CHANGED" = true ]; then
+				kpanel_disk_management_reply applied "$device_id" "实时挂载未变化，持久化配置已应用" "$backup" 0
+			else
+				kpanel_disk_management_reply unchanged "$device_id" "设备已经按目标挂载并持久化" "" 0
+			fi
+			return $?
+		fi
+		kpanel_disk_management_reply unchanged "$device_id" "设备已经按目标挂载" "" 0
+		return $?
+	elif [ "$rc" -ne 1 ]; then
+		kpanel_disk_management_reply failed "$device_id" "无法可靠读取目标挂载状态" "" 1
+		return $?
+	fi
+	if ! kpanel_disk_management_mountpoint_path_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" true; then
+		kpanel_disk_management_reply needs-attention "$device_id" "未挂载目标不是 root 独占的安全目录路径" "" 3
+		return $?
+	fi
+	kpanel_disk_management_device_is_mounted "$device_id"
+	mounted_rc=$?
+	if [ "$mounted_rc" -eq 0 ]; then
+		kpanel_disk_management_reply needs-attention "$device_id" "设备已挂载在其他目标，拒绝重复挂载" "" 3
+		return $?
+	elif [ "$mounted_rc" -ne 1 ]; then
+		kpanel_disk_management_reply failed "$device_id" "无法可靠读取设备挂载状态" "" 1
+		return $?
+	fi
+	if [ -e "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" ] || [ -L "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" ]; then
+		[ -d "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" ] && [ ! -L "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" ] || {
+			kpanel_disk_management_reply needs-attention "$device_id" "目标不是安全的真实目录" "" 3
+			return $?
+		}
+	else
+		parent="$(dirname -- "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT")" || {
+			kpanel_disk_management_reply failed "$device_id" "无法解析挂载点父目录" "" 1
+			return $?
+		}
+		[ -d "$parent" ] && [ ! -L "$parent" ] || {
+			kpanel_disk_management_reply needs-attention "$device_id" "挂载点父目录不存在或不安全" "" 3
+			return $?
+		}
+		if ! (umask 077; mkdir -- "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT") >/dev/null 2>&1; then
+			kpanel_disk_management_reply failed "$device_id" "创建挂载点失败" "" 1
+			return $?
+		fi
+		created=true
+		if ! chown 0:0 "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" >/dev/null 2>&1 ||
+			! chmod 700 "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" >/dev/null 2>&1; then
+			kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+			kpanel_disk_management_reply failed "$device_id" "无法设置新挂载点安全属性" "" 1
+			return $?
+		fi
+		if ! kpanel_disk_management_mountpoint_path_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" false; then
+			kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+			kpanel_disk_management_reply failed "$device_id" "新挂载点安全属性复核失败" "" 1
+			return $?
+		fi
+		if ! kpanel_disk_management_record_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"; then
+			kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+			kpanel_disk_management_reply failed "$device_id" "无法记录 KPanel 创建的挂载点" "" 1
+			return $?
+		fi
+	fi
+	content="$(find "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || {
+		[ "$created" = true ] && kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+		kpanel_disk_management_reply failed "$device_id" "无法安全检查挂载点内容" "" 1
+		return $?
+	}
+	if [ -n "$content" ]; then
+		[ "$created" = true ] && kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+		kpanel_disk_management_reply needs-attention "$device_id" "挂载点非空，拒绝覆盖现有内容" "" 3
+		return $?
+	fi
+	if [ "$persist" = 1 ]; then
+		kpanel_disk_management_persistence_source "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH"
+		source_rc=$?
+		if [ "$source_rc" -ne 0 ]; then
+			[ "$created" = true ] && kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+			if [ "$source_rc" -eq 2 ]; then
+				kpanel_disk_management_reply needs-attention "$device_id" "设备缺少 UUID/PARTUUID，无法安全持久化" "" 3
+			else
+				kpanel_disk_management_reply failed "$device_id" "无法读取设备持久化标识" "" 1
+			fi
+			return $?
+		fi
+	fi
+	if ! kpanel_disk_management_mountpoint_path_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" false; then
+		[ "$created" = true ] && kpanel_disk_management_cleanup_new_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+		kpanel_disk_management_reply needs-attention "$device_id" "挂载前安全复核失败" "" 3
+		return $?
+	fi
+	if ! mount --source "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" --target "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" >&2; then
+		if kpanel_disk_management_rollback_live_mount "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$created" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"; then
+			kpanel_disk_management_reply failed "$device_id" "挂载命令失败，未保留部分状态" "" 1
+		else
+			kpanel_disk_management_reply rollback-failed "$device_id" "挂载命令失败且无法确认或清理部分挂载" "" 4
+		fi
+		return $?
+	fi
+	if ! kpanel_disk_management_mountpoint_parent_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" false; then
+		if kpanel_disk_management_rollback_live_mount "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$created" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"; then
+			kpanel_disk_management_reply failed "$device_id" "挂载后安全属性复核失败，已回滚" "" 1
+		else
+			kpanel_disk_management_reply rollback-failed "$device_id" "挂载后安全属性复核失败且回滚失败" "" 4
+		fi
+		return $?
+	fi
+	target="$(kpanel_disk_management_target_device "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT")"
+	rc=$?
+	if [ "$rc" -ne 0 ] || [ "$target" != "$device_id" ]; then
+		if kpanel_disk_management_rollback_live_mount "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$created" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"; then
+			kpanel_disk_management_reply failed "$device_id" "挂载完成态回读失败，已回滚" "" 1
+		else
+			kpanel_disk_management_reply rollback-failed "$device_id" "挂载完成态回读失败且回滚失败" "" 4
+		fi
+		return $?
+	fi
+	if [ "$persist" = 1 ]; then
+		kpanel_disk_management_fstab_transaction ensure "$KPANEL_DISK_MANAGEMENT_PERSISTENCE_SOURCE" \
+			"$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_FSTYPE"
+		fstab_rc=$?
+		backup="$KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP"
+		if [ "$fstab_rc" -ne 0 ]; then
+			if ! kpanel_disk_management_rollback_live_mount "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$created" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX" ||
+				[ "$KPANEL_DISK_MANAGEMENT_FSTAB_ROLLBACK_FAILED" = true ]; then
+				kpanel_disk_management_reply rollback-failed "$device_id" "fstab 持久化失败且回滚未完整完成" "$backup" 4
+			elif [ "$fstab_rc" -eq 2 ]; then
+				kpanel_disk_management_reply needs-attention "$device_id" "fstab 存在冲突，实时挂载已回滚" "$backup" 3
+			else
+				kpanel_disk_management_reply failed "$device_id" "fstab 持久化失败，实时挂载已回滚" "$backup" 1
+			fi
+			return $?
+		fi
+	fi
+	backup="${KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP:-}"
+	kpanel_disk_management_reply applied "$device_id" "设备已挂载并完成状态回读" "$backup" 0
+}
+
+kpanel_disk_management_unmount_action() {
+	local device_id="$1" mountpoint_hex="$2" remove_persistence="$3"
+	local rc target mounted_rc source_rc fstab_rc backup=""
+	if ! kpanel_disk_management_decode_mountpoint "$mountpoint_hex"; then
+		kpanel_disk_management_reply failed "$device_id" "挂载点编码、规范路径或保护路径校验失败" "" 2
+		return $?
+	fi
+	if ! kpanel_disk_management_mountpoint_parent_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" false; then
+		kpanel_disk_management_reply needs-attention "$device_id" "卸载目标路径包含符号链接、非 root 目录或可被非 root 写入" "" 3
+		return $?
+	fi
+	kpanel_disk_management_prepare_device "$device_id"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 3 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 3
+		else
+			kpanel_disk_management_reply failed "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 1
+		fi
+		return $?
+	fi
+	target="$(kpanel_disk_management_target_device "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT")"
+	rc=$?
+	if [ "$rc" -eq 1 ]; then
+		kpanel_disk_management_device_is_mounted "$device_id"
+		mounted_rc=$?
+		if [ "$mounted_rc" -eq 0 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "设备挂载在其他目标，拒绝卸载" "" 3
+		elif [ "$mounted_rc" -eq 1 ]; then
+			kpanel_disk_management_reply unchanged "$device_id" "设备未挂载在指定目标" "" 0
+		else
+			kpanel_disk_management_reply failed "$device_id" "无法可靠读取设备挂载状态" "" 1
+		fi
+		return $?
+	elif [ "$rc" -ne 0 ]; then
+		kpanel_disk_management_reply failed "$device_id" "无法可靠读取目标挂载状态" "" 1
+		return $?
+	fi
+	[ "$target" = "$device_id" ] || {
+		kpanel_disk_management_reply needs-attention "$device_id" "指定目标由其他设备占用" "" 3
+		return $?
+	}
+	if [ "$remove_persistence" = 1 ]; then
+		kpanel_disk_management_persistence_source "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH"
+		source_rc=$?
+		if [ "$source_rc" -ne 0 ]; then
+			if [ "$source_rc" -eq 2 ]; then
+				kpanel_disk_management_reply needs-attention "$device_id" "设备缺少 UUID/PARTUUID，无法精确移除持久化记录" "" 3
+			else
+				kpanel_disk_management_reply failed "$device_id" "无法读取设备持久化标识" "" 1
+			fi
+			return $?
+		fi
+	fi
+	if ! kpanel_disk_management_mountpoint_parent_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" false; then
+		kpanel_disk_management_reply needs-attention "$device_id" "卸载前安全复核失败" "" 3
+		return $?
+	fi
+	if ! umount -- "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" >&2; then
+		kpanel_disk_management_reply needs-attention "$device_id" "普通卸载失败，设备可能正被使用" "" 3
+		return $?
+	fi
+	target="$(kpanel_disk_management_target_device "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT")"
+	rc=$?
+	if [ "$rc" -ne 1 ]; then
+		kpanel_disk_management_reply failed "$device_id" "卸载完成态回读失败" "" 1
+		return $?
+	fi
+	if ! kpanel_disk_management_mountpoint_path_secure "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" false; then
+		if kpanel_disk_management_restore_live_mount "$device_id" "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT"; then
+			kpanel_disk_management_reply failed "$device_id" "卸载后安全属性复核失败，实时挂载已恢复" "" 1
+		else
+			kpanel_disk_management_reply rollback-failed "$device_id" "卸载后安全属性复核失败且实时挂载恢复失败" "" 4
+		fi
+		return $?
+	fi
+	if [ "$remove_persistence" = 1 ]; then
+		kpanel_disk_management_fstab_transaction remove "$KPANEL_DISK_MANAGEMENT_PERSISTENCE_SOURCE" \
+			"$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_FSTYPE"
+		fstab_rc=$?
+		backup="$KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP"
+		if [ "$fstab_rc" -ne 0 ]; then
+			if ! kpanel_disk_management_restore_live_mount "$device_id" "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" ||
+				[ "$KPANEL_DISK_MANAGEMENT_FSTAB_ROLLBACK_FAILED" = true ]; then
+				kpanel_disk_management_reply rollback-failed "$device_id" "持久化移除失败且实时挂载回滚失败" "$backup" 4
+			elif [ "$fstab_rc" -eq 2 ]; then
+				kpanel_disk_management_reply needs-attention "$device_id" "fstab 存在冲突，实时挂载已恢复" "$backup" 3
+			else
+				kpanel_disk_management_reply failed "$device_id" "持久化移除失败，实时挂载已恢复" "$backup" 1
+			fi
+			return $?
+		fi
+	fi
+	kpanel_disk_management_forget_mountpoint "$device_id" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT" "$KPANEL_DISK_MANAGEMENT_MOUNTPOINT_HEX"
+	backup="${KPANEL_DISK_MANAGEMENT_FSTAB_BACKUP:-}"
+	kpanel_disk_management_reply applied "$device_id" "设备已从指定目标卸载" "$backup" 0
+}
+
+kpanel_disk_management_format_action() {
+	local device_id="$1" requested_fstype="$2" command_name rc actual
+	kpanel_disk_management_prepare_device "$device_id"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 3 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 3
+		else
+			kpanel_disk_management_reply failed "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 1
+		fi
+		return $?
+	fi
+	kpanel_disk_management_require_safe_leaf
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 3 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 3
+		else
+			kpanel_disk_management_reply failed "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 1
+		fi
+		return $?
+	fi
+	case "$requested_fstype" in
+		ext4) command_name=mkfs.ext4 ;;
+		xfs) command_name=mkfs.xfs ;;
+		ntfs)
+			if kpanel_disk_management_command_available mkfs.ntfs; then
+				command_name=mkfs.ntfs
+			elif kpanel_disk_management_command_available mkntfs; then
+				command_name=mkntfs
+			else
+				command_name=""
+			fi
+			;;
+		vfat)
+			if kpanel_disk_management_command_available mkfs.vfat; then
+				command_name=mkfs.vfat
+			elif kpanel_disk_management_command_available mkfs.fat; then
+				command_name=mkfs.fat
+			else
+				command_name=""
+			fi
+			;;
+	esac
+	if [ -z "$command_name" ] || ! kpanel_disk_management_command_available "$command_name"; then
+		kpanel_disk_management_reply needs-attention "$device_id" "缺少所选文件系统的格式化工具" "" 3
+		return $?
+	fi
+	case "$requested_fstype" in
+		ext4) mkfs.ext4 -F "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		xfs) mkfs.xfs -f "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		ntfs)
+			case "$command_name" in
+				mkfs.ntfs) mkfs.ntfs -F "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+				mkntfs) mkntfs -F "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+			esac
+			;;
+		vfat)
+			case "$command_name" in
+				mkfs.vfat) mkfs.vfat "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+				mkfs.fat) mkfs.fat "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+			esac
+			;;
+	esac
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		kpanel_disk_management_reply failed "$device_id" "格式化命令失败，未声明可回滚" "" 1
+		return $?
+	fi
+	command -v udevadm >/dev/null 2>&1 && udevadm settle >&2 || true
+	actual="$(kpanel_disk_management_probe_fstype "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH")" || {
+		kpanel_disk_management_reply failed "$device_id" "格式化后无法重读文件系统类型" "" 1
+		return $?
+	}
+	[ "$actual" = "$requested_fstype" ] || {
+		kpanel_disk_management_reply failed "$device_id" "格式化后文件系统类型回读不一致" "" 1
+		return $?
+	}
+	kpanel_disk_management_reply applied "$device_id" "格式化已完成并通过文件系统类型回读" "" 0
+}
+
+kpanel_disk_management_check_action() {
+	local device_id="$1" mode="$2" fstype command_name rc
+	kpanel_disk_management_prepare_device "$device_id"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 3 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 3
+		else
+			kpanel_disk_management_reply failed "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 1
+		fi
+		return $?
+	fi
+	kpanel_disk_management_require_safe_leaf
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -eq 3 ]; then
+			kpanel_disk_management_reply needs-attention "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 3
+		else
+			kpanel_disk_management_reply failed "$device_id" "$KPANEL_DISK_MANAGEMENT_PREPARE_MESSAGE" "" 1
+		fi
+		return $?
+	fi
+	fstype="$(kpanel_disk_management_probe_fstype "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH")" || {
+		kpanel_disk_management_reply needs-attention "$device_id" "无法识别可检查的文件系统" "" 3
+		return $?
+	}
+	case "$fstype" in
+		ext4) command_name=e2fsck ;;
+		xfs) command_name=xfs_repair ;;
+		ntfs) command_name=ntfsfix ;;
+		vfat)
+			if kpanel_disk_management_command_available fsck.vfat; then
+				command_name=fsck.vfat
+			elif kpanel_disk_management_command_available fsck.fat; then
+				command_name=fsck.fat
+			else
+				command_name=""
+			fi
+			;;
+		*)
+			kpanel_disk_management_reply needs-attention "$device_id" "当前文件系统不在 v1 检查支持范围" "" 3
+			return $?
+			;;
+	esac
+	if [ -z "$command_name" ] || ! kpanel_disk_management_command_available "$command_name"; then
+		kpanel_disk_management_reply needs-attention "$device_id" "缺少当前文件系统的检查工具" "" 3
+		return $?
+	fi
+	case "$fstype:$mode" in
+		ext4:readonly) e2fsck -fn "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		ext4:repair) e2fsck -fy "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		xfs:readonly) xfs_repair -n "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		xfs:repair) xfs_repair "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		ntfs:readonly) ntfsfix -n "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		ntfs:repair) ntfsfix "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+		vfat:readonly)
+			case "$command_name" in
+				fsck.vfat) fsck.vfat -n "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+				fsck.fat) fsck.fat -n "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+			esac
+			;;
+		vfat:repair)
+			case "$command_name" in
+				fsck.vfat) fsck.vfat -a "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+				fsck.fat) fsck.fat -a "$KPANEL_DISK_MANAGEMENT_DEVICE_PATH" >&2 ;;
+			esac
+			;;
+	esac
+	rc=$?
+	if [ "$mode" = readonly ]; then
+		if [ "$rc" -eq 0 ]; then
+			kpanel_disk_management_reply unchanged "$device_id" "只读文件系统检查完成，未执行修复" "" 0
+		else
+			kpanel_disk_management_reply needs-attention "$device_id" "只读检查发现问题或检查工具未能完整执行" "" 3
+		fi
+		return $?
+	fi
+	case "$fstype:$rc" in
+		ext4:0|ext4:1|ext4:2|ext4:3|vfat:0|vfat:1|xfs:0|ntfs:0)
+			kpanel_disk_management_reply applied "$device_id" "文件系统修复命令已成功完成" "" 0
+			;;
+		*)
+			kpanel_disk_management_reply failed "$device_id" "文件系统修复命令失败" "" 1
+			;;
+	esac
+}
+
+kpanel_disk_management_run_locked() (
+	local action="$1"
+	shift
+	case "$action" in
+		mount) kpanel_disk_management_mount_action "$@" ;;
+		unmount) kpanel_disk_management_unmount_action "$@" ;;
+		format) kpanel_disk_management_format_action "$@" ;;
+		check) kpanel_disk_management_check_action "$@" ;;
+		*) kpanel_disk_management_reply failed "" "不支持的 disk-management 动作" "" 2 ;;
+	esac
+)
+
+kpanel_disk_management_dispatch() {
+	local action="${1:-}" device_id="" lock_file rc
+	shift || true
+	[[ "${1:-}" =~ ^[0-9]+:[0-9]+$ ]] && device_id="$1"
+	printf 'KPANEL_DISK_MANAGEMENT_PROTOCOL %s\n' "$KPANEL_DISK_MANAGEMENT_PROTOCOL_VERSION"
+	kpanel_disk_management_require_platform
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		kpanel_disk_management_reply failed "" "$KPANEL_DISK_MANAGEMENT_REQUIRE_MESSAGE" "" "$rc"
+		return $?
+	fi
+	case "$action" in
+		mount|unmount)
+			[ "$#" -eq 3 ] && [[ "$1" =~ ^[0-9]+:[0-9]+$ ]] &&
+				[[ "$2" =~ ^[0-9a-fA-F]+$ ]] && [ "$(( ${#2} % 2 ))" -eq 0 ] &&
+				[[ "$3" =~ ^[01]$ ]] || {
+				kpanel_disk_management_reply failed "$device_id" "mount/unmount 参数无效" "" 2
+				return $?
+			}
+			;;
+		format)
+			[ "$#" -eq 2 ] && [[ "$1" =~ ^[0-9]+:[0-9]+$ ]] && [[ "$2" =~ ^(ext4|xfs|ntfs|vfat)$ ]] || {
+				kpanel_disk_management_reply failed "$device_id" "format 参数无效" "" 2
+				return $?
+			}
+			;;
+		check)
+			[ "$#" -eq 2 ] && [[ "$1" =~ ^[0-9]+:[0-9]+$ ]] && [[ "$2" =~ ^(readonly|repair)$ ]] || {
+				kpanel_disk_management_reply failed "$device_id" "check 参数无效" "" 2
+				return $?
+			}
+			;;
+		*)
+			kpanel_disk_management_reply failed "$device_id" "用法: k kpanel disk-management <mount|unmount|format|check> ..." "" 2
+			return $?
+			;;
+	esac
+	lock_file="$(kpanel_disk_management_prepare_lock_file)" || {
+		kpanel_disk_management_reply failed "$device_id" "disk-management 锁路径不安全或无法创建" "" 1
+		return $?
+	}
+	exec 9<>"$lock_file" || {
+		kpanel_disk_management_reply failed "$device_id" "无法打开 disk-management 锁" "" 1
+		return $?
+	}
+	kpanel_disk_management_lock_file_secure "$lock_file" || {
+		exec 9>&-
+		kpanel_disk_management_reply failed "$device_id" "disk-management 锁文件打开后验证失败" "" 1
+		return $?
+	}
+	if ! flock -w 5 -x 9 >/dev/null 2>&1; then
+		exec 9>&-
+		kpanel_disk_management_reply conflict "$device_id" "disk-management 写锁等待超时" "" 2
+		return $?
+	fi
+	kpanel_disk_management_run_locked "$action" "$@"
+}
+
+# KPanel disk management protocol end
+
+
+# KPanel network operations protocol start
+KPANEL_NETWORK_OPERATIONS_PROTOCOL_VERSION="1"
+
+kpanel_network_operations_script_file() {
+	printf '%s\n' "/root/Limiting_Shut_down.sh"
+}
+
+kpanel_network_operations_net_dev_file() {
+	printf '%s\n' "/proc/net/dev"
+}
+
+kpanel_network_operations_emit() {
+	local status="$1"
+	local version="${2:-}"
+	local backup="${3:-}"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || version="$(kpanel_system_resource_zero_version)"
+	printf 'KPANEL_NETWORK_OPERATIONS_STATUS=%s\n' "$status"
+	printf 'KPANEL_NETWORK_OPERATIONS_VERSION=%s\n' "$version"
+	[ -z "$backup" ] || printf 'KPANEL_NETWORK_OPERATIONS_BACKUP=%s\n' "$backup"
+}
+
+kpanel_network_operations_error() {
+	printf '错误: %s\n' "$1" >&2
+}
+
+kpanel_network_operations_require() {
+	local needs_root="$1"
+	shift
+	[ "${KJ_NETWORK_OPERATIONS_NONINTERACTIVE:-}" = "1" ] || {
+		kpanel_network_operations_error "KPanel network-operations 协议环境未启用"
+		kpanel_network_operations_emit failed
+		return 2
+	}
+	[ "$(uname -s 2>/dev/null)" = "Linux" ] || {
+		kpanel_network_operations_error "KPanel network-operations 协议仅支持 Linux"
+		kpanel_network_operations_emit failed
+		return 2
+	}
+	if [ "$needs_root" = true ] && [ "$(id -u)" -ne 0 ]; then
+		kpanel_network_operations_error "限流关机管理必须以 root 运行"
+		kpanel_network_operations_emit failed
+		return 2
+	fi
+	for command_name in "$@"; do
+		command -v "$command_name" >/dev/null 2>&1 || {
+			kpanel_network_operations_error "缺少必要命令: $command_name"
+			kpanel_network_operations_emit failed
+			return 2
+		}
+	done
+}
+
+kpanel_network_operations_port_usage() {
+	local temporary total truncated=false version line hex count=0
+	kpanel_network_operations_require false ss awk wc sha256sum od tr mktemp || return $?
+	[ "$#" -eq 0 ] || {
+		kpanel_network_operations_error "port-usage list 不接受额外参数"
+		kpanel_network_operations_emit failed
+		return 2
+	}
+	temporary="$(mktemp /tmp/kejilion-network-ports.XXXXXX)" || {
+		kpanel_network_operations_error "无法创建端口占用快照"
+		kpanel_network_operations_emit failed
+		return 1
+	}
+	if ! LC_ALL=C ss -H -lntup > "$temporary" 2>/dev/null; then
+		rm -f -- "$temporary"
+		kpanel_network_operations_error "无法读取监听端口"
+		kpanel_network_operations_emit failed
+		return 1
+	fi
+	if ! kpanel_system_resource_file_within_bounds "$temporary" 4194304 4096 ||
+		! awk 'length($0) > 4096 { exit 1 }' "$temporary"; then
+		rm -f -- "$temporary"
+		kpanel_network_operations_error "端口占用结果超过协议上限"
+		kpanel_network_operations_emit failed
+		return 1
+	fi
+	total="$(awk 'END { print NR + 0 }' "$temporary")" || total=0
+	[ "$total" -le 512 ] || truncated=true
+	version="$(sha256sum -- "$temporary" 2>/dev/null | awk '{print $1}')"
+	kpanel_network_operations_emit ok "$version"
+	printf 'KPANEL_NETWORK_OPERATIONS_TOTAL=%s\n' "$total"
+	printf 'KPANEL_NETWORK_OPERATIONS_TRUNCATED=%s\n' "$truncated"
+	while IFS= read -r line && [ "$count" -lt 512 ]; do
+		hex="$(printf '%s' "$line" | od -An -v -tx1 | tr -d ' \n')" || {
+			rm -f -- "$temporary"
+			return 1
+		}
+		printf 'KPANEL_NETWORK_OPERATIONS_PORT_HEX=%s\n' "$hex"
+		count=$((count + 1))
+	done < "$temporary"
+	rm -f -- "$temporary"
+}
+
+kpanel_network_operations_traffic_bytes() {
+	local path
+	path="$(kpanel_network_operations_net_dev_file)"
+	[ -f "$path" ] && [ ! -L "$path" ] || return 1
+	awk '
+		BEGIN { rx = 0; tx = 0 }
+		$1 ~ /^(eth|ens|enp|eno)[0-9]+:/ { rx += $2; tx += $10 }
+		END { printf "%.0f %.0f\n", rx, tx }
+	' "$path"
+}
+
+kpanel_network_operations_script_safe() {
+	local path="$1" uid expected_uid mode
+	[ -f "$path" ] && [ ! -L "$path" ] || return 1
+	kpanel_system_resource_file_within_bounds "$path" 65536 256 || return 1
+	uid="$(stat -c '%u' "$path" 2>/dev/null)" || return 1
+	expected_uid="$(kpanel_system_resource_lock_owner_uid)" || return 1
+	[ "$uid" = "$expected_uid" ] || return 1
+	mode="$(stat -c '%a' "$path" 2>/dev/null)" || return 1
+	[[ "$mode" =~ ^[0-7]{3,4}$ ]] && [ "$((8#$mode & 0022))" -eq 0 ]
+}
+
+kpanel_network_operations_cron_relevant() {
+	local source="$1"
+	awk '
+		$0 == "# kejilion traffic shutdown start" { managed = 1; print; next }
+		managed { print; if ($0 == "# kejilion traffic shutdown end") managed = 0; next }
+		$0 == "* * * * * ~/Limiting_Shut_down.sh" ||
+		$0 == "* * * * * /root/Limiting_Shut_down.sh" { print }
+	' "$source"
+}
+
+kpanel_network_operations_traffic_version() {
+	local script_path cron_path canonical version
+	script_path="$(kpanel_network_operations_script_file)"
+	[ ! -L "$script_path" ] || return 1
+	cron_path="$(mktemp /tmp/kejilion-network-traffic-cron.XXXXXX)" || return 1
+	canonical="$(mktemp /tmp/kejilion-network-traffic-version.XXXXXX)" || {
+		rm -f -- "$cron_path"
+		return 1
+	}
+	if ! kpanel_system_resource_cron_capture "$cron_path"; then
+		rm -f -- "$cron_path" "$canonical"
+		return 1
+	fi
+	if [ -e "$script_path" ]; then
+		kpanel_network_operations_script_safe "$script_path" || {
+			rm -f -- "$cron_path" "$canonical"
+			return 1
+		}
+		printf 'script=present\n' > "$canonical"
+		sha256sum -- "$script_path" >> "$canonical" || {
+			rm -f -- "$cron_path" "$canonical"
+			return 1
+		}
+	else
+		printf 'script=absent\n' > "$canonical"
+	fi
+	printf 'cron:\n' >> "$canonical"
+	kpanel_network_operations_cron_relevant "$cron_path" >> "$canonical" || {
+		rm -f -- "$cron_path" "$canonical"
+		return 1
+	}
+	version="$(sha256sum -- "$canonical" 2>/dev/null | awk '{print $1}')"
+	rm -f -- "$cron_path" "$canonical"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || return 1
+	printf '%s\n' "$version"
+}
+
+kpanel_network_operations_parse_script() {
+	local path="$1" rx tx
+	grep -Fqx '# KEJILION_TRAFFIC_SHUTDOWN_MANAGED_V1' "$path" || return 1
+	rx="$(sed -n 's/^rx_threshold_gb=\([0-9][0-9]*\)$/\1/p' "$path")"
+	tx="$(sed -n 's/^tx_threshold_gb=\([0-9][0-9]*\)$/\1/p' "$path")"
+	[[ "$rx" =~ ^[0-9]+$ ]] && [[ "$tx" =~ ^[0-9]+$ ]] || return 1
+	[ "$(printf '%s\n' "$rx" | wc -l)" -eq 1 ] && [ "$(printf '%s\n' "$tx" | wc -l)" -eq 1 ] || return 1
+	KPANEL_NETWORK_TRAFFIC_RX="$rx"
+	KPANEL_NETWORK_TRAFFIC_TX="$tx"
+}
+
+kpanel_network_operations_traffic_status() {
+	local script_path cron_path version bytes rx_bytes tx_bytes enabled=false health=disabled
+	local rx_threshold=0 tx_threshold=0 reset_day=0 invocation_count reset_line_count start_count end_count expected_script
+	kpanel_network_operations_require false awk crontab grep sed sha256sum stat wc mktemp cmp || return $?
+	[ "$#" -eq 0 ] || {
+		kpanel_network_operations_error "traffic-shutdown status 不接受额外参数"
+		kpanel_network_operations_emit failed
+		return 2
+	}
+	script_path="$(kpanel_network_operations_script_file)"
+	cron_path="$(mktemp /tmp/kejilion-network-traffic-status.XXXXXX)" || {
+		kpanel_network_operations_emit failed
+		return 1
+	}
+	if ! kpanel_system_resource_cron_capture "$cron_path"; then
+		rm -f -- "$cron_path"
+		kpanel_network_operations_error "无法读取 root crontab"
+		kpanel_network_operations_emit failed
+		return 1
+	fi
+	version="$(kpanel_network_operations_traffic_version)" || {
+		rm -f -- "$cron_path"
+		kpanel_network_operations_error "限流关机配置不安全或无法计算版本"
+		kpanel_network_operations_emit failed
+		return 1
+	}
+	bytes="$(kpanel_network_operations_traffic_bytes)" || {
+		rm -f -- "$cron_path"
+		kpanel_network_operations_error "无法读取累计网络流量"
+		kpanel_network_operations_emit failed "$version"
+		return 1
+	}
+	read -r rx_bytes tx_bytes <<< "$bytes"
+	if [ -e "$script_path" ]; then
+		enabled=true
+		if kpanel_network_operations_script_safe "$script_path" &&
+			kpanel_network_operations_parse_script "$script_path"; then
+			rx_threshold="$KPANEL_NETWORK_TRAFFIC_RX"
+			tx_threshold="$KPANEL_NETWORK_TRAFFIC_TX"
+			expected_script="$(mktemp /tmp/kejilion-network-traffic-expected.XXXXXX)" || {
+				rm -f -- "$cron_path"
+				kpanel_network_operations_emit failed "$version"
+				return 1
+			}
+			if ! kpanel_network_operations_build_script "$expected_script" "$rx_threshold" "$tx_threshold" ||
+				! cmp -s -- "$expected_script" "$script_path"; then
+				rx_threshold=0
+				tx_threshold=0
+			fi
+			rm -f -- "$expected_script"
+		fi
+	fi
+	start_count="$(grep -Fxc '# kejilion traffic shutdown start' "$cron_path")"
+	end_count="$(grep -Fxc '# kejilion traffic shutdown end' "$cron_path")"
+	invocation_count="$(grep -Fxc "* * * * * $script_path" "$cron_path")"
+	reset_line_count="$(sed -n '/^# kejilion traffic shutdown start$/,/^# kejilion traffic shutdown end$/p' "$cron_path" | grep -Ec '^0 1 ([1-9]|[12][0-9]|3[01]) \* \* reboot$')"
+	if [ "$enabled" = true ] && [ "$rx_threshold" -gt 0 ] && [ "$tx_threshold" -gt 0 ] &&
+		[ "$start_count" -eq 1 ] && [ "$end_count" -eq 1 ] && [ "$invocation_count" -eq 1 ] && [ "$reset_line_count" -eq 1 ]; then
+		reset_day="$(sed -n '/^# kejilion traffic shutdown start$/,/^# kejilion traffic shutdown end$/s/^0 1 \([0-9][0-9]*\) \* \* reboot$/\1/p' "$cron_path")"
+		if [[ "$reset_day" =~ ^([1-9]|[12][0-9]|3[01])$ ]]; then
+			health=ready
+		else
+			health=inconsistent
+		fi
+	elif [ "$enabled" = false ] && [ "$start_count" -eq 0 ] && [ "$end_count" -eq 0 ] && [ "$invocation_count" -eq 0 ]; then
+		health=disabled
+	else
+		health=inconsistent
+	fi
+	rm -f -- "$cron_path"
+	kpanel_network_operations_emit ok "$version"
+	printf 'KPANEL_NETWORK_OPERATIONS_ENABLED=%s\n' "$enabled"
+	printf 'KPANEL_NETWORK_OPERATIONS_HEALTH=%s\n' "$health"
+	printf 'KPANEL_NETWORK_OPERATIONS_RX_BYTES=%s\n' "$rx_bytes"
+	printf 'KPANEL_NETWORK_OPERATIONS_TX_BYTES=%s\n' "$tx_bytes"
+	printf 'KPANEL_NETWORK_OPERATIONS_RX_THRESHOLD_GIB=%s\n' "$rx_threshold"
+	printf 'KPANEL_NETWORK_OPERATIONS_TX_THRESHOLD_GIB=%s\n' "$tx_threshold"
+	printf 'KPANEL_NETWORK_OPERATIONS_RESET_DAY=%s\n' "$reset_day"
+}
+
+kpanel_network_operations_valid_threshold() {
+	[[ "$1" =~ ^[0-9]+$ ]] && [ "$1" != 0 ] && [ "$((10#$1))" -le 8388607 ]
+}
+
+kpanel_network_operations_build_script() {
+	local target="$1" rx="$2" tx="$3"
+	cat > "$target" <<EOF
+#!/bin/bash
+# KEJILION_TRAFFIC_SHUTDOWN_MANAGED_V1
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+rx_threshold_gb=$rx
+tx_threshold_gb=$tx
+read -r rx_bytes tx_bytes <<TRAFFIC
+\$(awk 'BEGIN { rx = 0; tx = 0 } \$1 ~ /^(eth|ens|enp|eno)[0-9]+:/ { rx += \$2; tx += \$10 } END { printf "%.0f %.0f\\n", rx, tx }' /proc/net/dev)
+TRAFFIC
+rx_threshold_bytes=\$((rx_threshold_gb * 1024 * 1024 * 1024))
+tx_threshold_bytes=\$((tx_threshold_gb * 1024 * 1024 * 1024))
+if [ "\$rx_bytes" -ge "\$rx_threshold_bytes" ] || [ "\$tx_bytes" -ge "\$tx_threshold_bytes" ]; then
+	shutdown -h now
+fi
+EOF
+}
+
+kpanel_network_operations_build_cron() {
+	local source="$1" target="$2" action="$3" script_path="$4" reset_day="$5"
+	awk '
+		$0 == "# kejilion traffic shutdown start" { managed = 1; next }
+		managed && $0 == "# kejilion traffic shutdown end" { managed = 0; next }
+		managed { next }
+		$0 == "* * * * * ~/Limiting_Shut_down.sh" { next }
+		$0 == "* * * * * /root/Limiting_Shut_down.sh" { next }
+		{ print }
+	' "$source" > "$target" || return 1
+	if [ "$action" = enable ]; then
+		{
+			printf '%s\n' '# kejilion traffic shutdown start'
+			printf '* * * * * %s\n' "$script_path"
+			printf '0 1 %s * * reboot\n' "$reset_day"
+			printf '%s\n' '# kejilion traffic shutdown end'
+		} >> "$target" || return 1
+	fi
+	kpanel_system_resource_file_within_bounds "$target" 262144 512
+}
+
+kpanel_network_operations_restore_traffic() {
+	local snapshot="$1" script_path="$2" script_existed="$3" cron_existed="$4" verify version="$5"
+	if [ "$script_existed" = true ]; then
+		cp -p -- "$snapshot/script" "$script_path" >/dev/null 2>&1 || return 1
+	else
+		rm -f -- "$script_path" >/dev/null 2>&1 || return 1
+	fi
+	verify="$snapshot/cron.verify"
+	kpanel_system_resource_cron_restore "$snapshot/crontab" "$cron_existed" "$verify" || return 1
+	[ "$(kpanel_network_operations_traffic_version 2>/dev/null)" = "$version" ]
+}
+
+kpanel_network_operations_traffic_failure() {
+	local snapshot="$1" script_path="$2" script_existed="$3" cron_existed="$4" original_version="$5" message="$6"
+	local version recovery_path
+	kpanel_network_operations_error "$message"
+	if kpanel_network_operations_restore_traffic "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$original_version"; then
+		version="$(kpanel_network_operations_traffic_version 2>/dev/null || true)"
+		rm -rf -- "$snapshot"
+		kpanel_network_operations_emit failed "$version"
+		return 1
+	else
+		version="$(kpanel_network_operations_traffic_version 2>/dev/null || true)"
+		if recovery_path="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot" traffic-shutdown)"; then
+			kpanel_network_operations_emit rollback-failed "$version" "$recovery_path"
+		else
+			kpanel_network_operations_emit rollback-failed "$version"
+		fi
+		return 1
+	fi
+}
+
+kpanel_network_operations_traffic_action() {
+	local action="$1" expected="${2:-}" rx="${3:-}" tx="${4:-}" reset_day="${5:-}"
+	local script_path current_version snapshot cron_existed script_existed=false
+	local desired_script desired_cron install_temp final_version
+	case "$action" in
+		enable)
+			[ "$#" -eq 5 ] && kpanel_system_resource_valid_version "$expected" &&
+				kpanel_network_operations_valid_threshold "$rx" &&
+				kpanel_network_operations_valid_threshold "$tx" &&
+				[[ "$reset_day" =~ ^([1-9]|[12][0-9]|3[01])$ ]] || {
+				kpanel_network_operations_error "enable 需要 expectedVersion、正整数 GiB 阈值和 1-31 重置日"
+				kpanel_network_operations_emit failed "$(kpanel_network_operations_traffic_version 2>/dev/null || true)"
+				return 2
+			}
+			;;
+		disable)
+			[ "$#" -eq 2 ] && kpanel_system_resource_valid_version "$expected" || {
+				kpanel_network_operations_error "disable 只需要 expectedVersion"
+				kpanel_network_operations_emit failed "$(kpanel_network_operations_traffic_version 2>/dev/null || true)"
+				return 2
+			}
+			;;
+		*)
+			kpanel_network_operations_error "不支持的 traffic-shutdown 动作"
+			kpanel_network_operations_emit failed
+			return 2
+			;;
+	esac
+	script_path="$(kpanel_network_operations_script_file)"
+	[ ! -L "$script_path" ] || {
+		kpanel_network_operations_error "限流关机脚本不能是符号链接"
+		kpanel_network_operations_emit failed
+		return 1
+	}
+	current_version="$(kpanel_network_operations_traffic_version)" || {
+		kpanel_network_operations_error "无法读取当前限流关机配置"
+		kpanel_network_operations_emit failed
+		return 1
+	}
+	if [ "$current_version" != "$expected" ]; then
+		kpanel_network_operations_error "资源版本已变化，请刷新后重试"
+		kpanel_network_operations_emit conflict "$current_version"
+		return 2
+	fi
+	snapshot="$(kpanel_system_resource_tempdir traffic-shutdown)" || {
+		kpanel_network_operations_emit failed "$current_version"
+		return 1
+	}
+	if [ -e "$script_path" ]; then
+		kpanel_network_operations_script_safe "$script_path" || {
+			rm -rf -- "$snapshot"
+			kpanel_network_operations_emit failed "$current_version"
+			return 1
+		}
+		cp -p -- "$script_path" "$snapshot/script" || {
+			rm -rf -- "$snapshot"
+			kpanel_network_operations_emit failed "$current_version"
+			return 1
+		}
+		script_existed=true
+	fi
+	kpanel_system_resource_cron_capture "$snapshot/crontab" || {
+		rm -rf -- "$snapshot"
+		kpanel_network_operations_emit failed "$current_version"
+		return 1
+	}
+	cron_existed="$KPANEL_SYSTEM_RESOURCE_CRON_EXISTED"
+	printf '%s\n' "$script_existed" > "$snapshot/script.existed"
+	printf '%s\n' "$cron_existed" > "$snapshot/cron.existed"
+	desired_script="$snapshot/script.desired"
+	desired_cron="$snapshot/cron.desired"
+	if [ "$action" = enable ]; then
+		kpanel_network_operations_build_script "$desired_script" "$rx" "$tx" || {
+			kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "无法生成限流关机脚本"
+			return $?
+		}
+	fi
+	kpanel_network_operations_build_cron "$snapshot/crontab" "$desired_cron" "$action" "$script_path" "$reset_day" || {
+		kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "无法生成限流关机 crontab"
+		return $?
+	}
+	if { [ "$action" = enable ] && [ "$script_existed" = true ] &&
+		cmp -s -- "$desired_script" "$script_path" && cmp -s -- "$desired_cron" "$snapshot/crontab"; } ||
+		{ [ "$action" = disable ] && [ "$script_existed" = false ] && cmp -s -- "$desired_cron" "$snapshot/crontab"; }; then
+		rm -rf -- "$snapshot"
+		kpanel_network_operations_emit unchanged "$current_version"
+		return 0
+	fi
+	if [ "$action" = enable ]; then
+		install_temp="$(mktemp "$(dirname -- "$script_path")/.Limiting_Shut_down.sh.XXXXXX")" || {
+			kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "无法创建限流关机临时文件"
+			return $?
+		}
+		if ! cp -- "$desired_script" "$install_temp" || ! chown 0:0 "$install_temp" 2>/dev/null ||
+			! chmod 700 "$install_temp" || ! mv -f -- "$install_temp" "$script_path"; then
+			rm -f -- "$install_temp"
+			kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "无法原子安装限流关机脚本"
+			return $?
+		fi
+	else
+		rm -f -- "$script_path" || {
+			kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "无法删除限流关机脚本"
+			return $?
+		}
+	fi
+	if ! crontab "$desired_cron"; then
+		kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "无法安装限流关机 crontab"
+		return $?
+	fi
+	final_version="$(kpanel_network_operations_traffic_version)" || {
+		kpanel_network_operations_traffic_failure "$snapshot" "$script_path" "$script_existed" "$cron_existed" "$current_version" "限流关机配置回读失败"
+		return $?
+	}
+	if [ "$final_version" = "$current_version" ]; then
+		rm -rf -- "$snapshot"
+		kpanel_network_operations_emit unchanged "$final_version"
+	else
+		rm -rf -- "$snapshot"
+		kpanel_network_operations_emit applied "$final_version"
+	fi
+}
+
+kpanel_network_operations_traffic_run_locked() (
+	local action="$1" lock_file
+	shift
+	lock_file="$(kpanel_system_resource_prepare_lock_file)" || {
+		kpanel_network_operations_error "network-operations 锁路径不安全或无法创建"
+		kpanel_network_operations_emit failed "$(kpanel_network_operations_traffic_version 2>/dev/null || true)"
+		return 1
+	}
+	exec 9<>"$lock_file" || return 1
+	kpanel_system_resource_lock_path_secure "$lock_file" file 600 || return 1
+	if ! flock -w 5 -x 9 >/dev/null 2>&1; then
+		kpanel_network_operations_error "network-operations 写锁等待超时"
+		kpanel_network_operations_emit conflict "$(kpanel_network_operations_traffic_version 2>/dev/null || true)"
+		return 2
+	fi
+	kpanel_network_operations_traffic_action "$action" "$@"
+)
+
+kpanel_network_operations_dispatch() {
+	local resource="${1:-}" action="${2:-}"
+	[ "$#" -ge 2 ] || {
+		kpanel_network_operations_error "用法: kpanel network-operations <port-usage|traffic-shutdown> <action> ..."
+		kpanel_network_operations_emit failed
+		return 2
+	}
+	shift 2
+	case "$resource:$action" in
+		port-usage:list) kpanel_network_operations_port_usage "$@" ;;
+		traffic-shutdown:status)
+			kpanel_network_operations_traffic_status "$@"
+			;;
+		traffic-shutdown:enable|traffic-shutdown:disable)
+			kpanel_network_operations_require true awk crontab grep sed sha256sum stat wc mktemp flock cmp cp mv chmod chown || return $?
+			kpanel_network_operations_traffic_run_locked "$action" "$@"
+			;;
+		*)
+			kpanel_network_operations_error "不支持的 network-operations 资源或动作"
+			kpanel_network_operations_emit failed
+			return 2
+			;;
+	esac
+}
+
+# KPanel network operations protocol end
+
+
+# KPanel account management protocol start
+KPANEL_ACCOUNT_MANAGEMENT_PROTOCOL_VERSION="1"
+
+kpanel_account_error() {
+	printf '%s\n' "$*" >&2
+}
+
+kpanel_account_emit() {
+	local status="$1" version="${2:-}" backup="${3:-}"
+	printf 'KPANEL_ACCOUNT_MANAGEMENT_STATUS=%s\n' "$status"
+	[ -z "$version" ] || printf 'KPANEL_ACCOUNT_MANAGEMENT_VERSION=%s\n' "$version"
+	[ -z "$backup" ] || printf 'KPANEL_ACCOUNT_MANAGEMENT_BACKUP=%s\n' "$backup"
+}
+
+kpanel_account_root_path() {
+	local path="$1"
+	printf '%s%s\n' "${KPANEL_ACCOUNT_TEST_ROOT:-}" "$path"
+}
+
+kpanel_account_passwd_file() { kpanel_account_root_path /etc/passwd; }
+kpanel_account_group_file() { kpanel_account_root_path /etc/group; }
+kpanel_account_shadow_file() { kpanel_account_root_path /etc/shadow; }
+kpanel_account_gshadow_file() { kpanel_account_root_path /etc/gshadow; }
+kpanel_account_login_defs_file() { kpanel_account_root_path /etc/login.defs; }
+kpanel_account_sudoers_file() { kpanel_account_root_path /etc/sudoers; }
+kpanel_account_sudoers_dir() { kpanel_account_root_path /etc/sudoers.d; }
+kpanel_account_sshd_config() { kpanel_account_root_path /etc/ssh/sshd_config; }
+kpanel_account_sshd_fragment() { kpanel_account_root_path /etc/ssh/sshd_config.d/00-kejilion-account-management.conf; }
+
+kpanel_account_host_path() {
+	local path="$1"
+	if [ -n "${KPANEL_ACCOUNT_TEST_ROOT:-}" ]; then
+		printf '%s%s\n' "$KPANEL_ACCOUNT_TEST_ROOT" "$path"
+	else
+		printf '%s\n' "$path"
+	fi
+}
+
+kpanel_account_valid_username() {
+	[[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && [[ "$1" != *'$' ]]
+}
+
+kpanel_account_require() {
+	local write="$1" command
+	shift
+	[ "${KJ_ACCOUNT_MANAGEMENT_NONINTERACTIVE:-}" = "1" ] || {
+		kpanel_account_error "KPanel account-management 协议环境未启用"
+		return 2
+	}
+	[ "$EUID" -eq 0 ] || {
+		kpanel_account_error "KPanel account-management 协议必须以 root 运行"
+		return 1
+	}
+	[ "$(uname -s 2>/dev/null)" = Linux ] || {
+		kpanel_account_error "KPanel account-management 协议仅支持 Linux"
+		return 2
+	}
+	for command in "$@"; do
+		command -v "$command" >/dev/null 2>&1 || {
+			kpanel_account_error "缺少 account-management 依赖: $command"
+			return 2
+		}
+	done
+	if [ "$write" = true ]; then
+		for command in flock cp mv chmod chown mktemp; do
+			command -v "$command" >/dev/null 2>&1 || {
+				kpanel_account_error "缺少 account-management 写入依赖: $command"
+				return 2
+			}
+		done
+	fi
+}
+
+kpanel_account_file_safe() {
+	local path="$1" max_bytes="$2" max_lines="$3"
+	[ -f "$path" ] && [ ! -L "$path" ] || return 1
+	kpanel_system_resource_file_within_bounds "$path" "$max_bytes" "$max_lines"
+}
+
+kpanel_account_find_record() {
+	local username="$1" passwd_file
+	passwd_file="$(kpanel_account_passwd_file)"
+	awk -F: -v username="$username" '$1 == username { print; found=1; exit } END { exit(found ? 0 : 1) }' "$passwd_file"
+}
+
+kpanel_account_exists() {
+	kpanel_account_find_record "$1" >/dev/null 2>&1
+}
+
+kpanel_account_home() {
+	local record
+	record="$(kpanel_account_find_record "$1")" || return 1
+	printf '%s\n' "$record" | awk -F: '{print $6}'
+}
+
+kpanel_account_authorized_keys() {
+	local username="$1" home
+	home="$(kpanel_account_home "$username")" || return 1
+	[[ "$home" = /* ]] && [ "$home" != / ] || return 1
+	printf '%s/.ssh/authorized_keys\n' "$(kpanel_account_host_path "$home")"
+}
+
+kpanel_account_capture_keys() {
+	local username="$1" target="$2" path
+	path="$(kpanel_account_authorized_keys "$username")" || return 1
+	: > "$target" || return 1
+	[ ! -e "$path" ] && return 0
+	[ -f "$path" ] && [ ! -L "$path" ] || return 1
+	if [ -n "${KPANEL_ACCOUNT_TEST_ROOT:-}" ]; then
+		cat -- "$path" > "$target" || return 1
+	else
+		runuser -u "$username" -- cat -- "$path" > "$target" 2>/dev/null || return 1
+	fi
+	kpanel_system_resource_file_within_bounds "$target" 131072 128
+}
+
+kpanel_account_key_valid() {
+	local key="$1" temporary LC_ALL=C
+	[ -n "$key" ] && [ "${#key}" -le 4096 ] && [[ "$key" != *$'\n'* ]] && [[ "$key" != *$'\r'* ]] || return 1
+	case "$key" in
+		ssh-rsa\ *|ssh-ed25519\ *|ecdsa-sha2-*\ *|sk-ssh-ed25519@openssh.com\ *|sk-ecdsa-sha2-nistp256@openssh.com\ *) ;;
+		*) return 1 ;;
+	esac
+	temporary="$(mktemp /tmp/kejilion-account-key.XXXXXX)" || return 1
+	chmod 600 "$temporary" || { rm -f -- "$temporary"; return 1; }
+	printf '%s\n' "$key" > "$temporary" || { rm -f -- "$temporary"; return 1; }
+	ssh-keygen -lf "$temporary" >/dev/null 2>&1
+	local result=$?
+	rm -f -- "$temporary"
+	return "$result"
+}
+
+kpanel_account_key_id() {
+	printf '%s' "$1" | sha256sum | awk '{print $1}'
+}
+
+kpanel_account_install_keys() {
+	local username="$1" desired="$2" path ssh_dir temp uid gid
+	path="$(kpanel_account_authorized_keys "$username")" || return 1
+	ssh_dir="$(dirname -- "$path")" || return 1
+	[ ! -L "$ssh_dir" ] && [ ! -L "$path" ] || return 1
+	uid="$(kpanel_account_find_record "$username" | awk -F: '{print $3}')" || return 1
+	gid="$(kpanel_account_find_record "$username" | awk -F: '{print $4}')" || return 1
+	if [ -n "${KPANEL_ACCOUNT_TEST_ROOT:-}" ]; then
+		mkdir -p -- "$ssh_dir" || return 1
+		chmod 700 "$ssh_dir" || return 1
+		temp="$(mktemp "$ssh_dir/.authorized_keys.XXXXXX")" || return 1
+		cp -- "$desired" "$temp" && chmod 600 "$temp" && mv -f -- "$temp" "$path" || { rm -f -- "$temp"; return 1; }
+		return 0
+	fi
+	runuser -u "$username" -- mkdir -p -- "$ssh_dir" >/dev/null 2>&1 || return 1
+	runuser -u "$username" -- chmod 700 "$ssh_dir" >/dev/null 2>&1 || return 1
+	temp="$ssh_dir/.authorized_keys.kpanel.$$.$RANDOM"
+	runuser -u "$username" -- tee "$temp" < "$desired" >/dev/null 2>&1 || return 1
+	if ! runuser -u "$username" -- chmod 600 "$temp" >/dev/null 2>&1 ||
+		! runuser -u "$username" -- mv -f -- "$temp" "$path" >/dev/null 2>&1; then
+		runuser -u "$username" -- rm -f -- "$temp" >/dev/null 2>&1 || true
+		return 1
+	fi
+	chown "$uid:$gid" "$ssh_dir" "$path" >/dev/null 2>&1 || return 1
+}
+
+kpanel_account_password_status() {
+	local username="$1" status
+	status="$(passwd -S "$username" 2>/dev/null | awk '{print $2}')" || return 1
+	case "$status" in
+		P) printf '%s\n' enabled ;;
+		L|LK) printf '%s\n' locked ;;
+		NP) printf '%s\n' unset ;;
+		*) printf '%s\n' unknown ;;
+	esac
+}
+
+kpanel_account_admin_group() {
+	if getent group sudo >/dev/null 2>&1; then
+		printf '%s\n' sudo
+	elif getent group wheel >/dev/null 2>&1; then
+		printf '%s\n' wheel
+	else
+		return 1
+	fi
+}
+
+kpanel_account_sudo_file() {
+	printf '%s/90-kejilion-%s\n' "$(kpanel_account_sudoers_dir)" "$1"
+}
+
+kpanel_account_role() {
+	local username="$1" groups sudo_file
+	[ "$username" = root ] && { printf '%s\n' root; return 0; }
+	sudo_file="$(kpanel_account_sudo_file "$username")"
+	if [ -f "$sudo_file" ] && [ ! -L "$sudo_file" ] &&
+		grep -Fqx "$username ALL=(ALL:ALL) NOPASSWD:ALL" "$sudo_file"; then
+		printf '%s\n' passwordless-admin
+		return 0
+	fi
+	groups="$(id -nG "$username" 2>/dev/null)" || return 1
+	case " $groups " in
+		*' sudo '*|*' wheel '*) printf '%s\n' administrator ;;
+		*) printf '%s\n' standard ;;
+	esac
+}
+
+kpanel_account_sshd_effective() {
+	local config password pubkey root
+	config="$(kpanel_account_sshd_config)"
+	[ -f "$config" ] && [ ! -L "$config" ] || return 1
+	while read -r key value _; do
+		case "$key" in
+			passwordauthentication) password="$value" ;;
+			pubkeyauthentication) pubkey="$value" ;;
+			permitrootlogin) root="$value" ;;
+		esac
+	done < <(sshd -T -f "$config" 2>/dev/null)
+	[ "$password" = yes ] || password=no
+	[ "$pubkey" = yes ] || pubkey=no
+	case "$root" in
+		yes) root=enabled ;;
+		prohibit-password|without-password) root=key-only ;;
+		no) root=disabled ;;
+		*) root=custom ;;
+	esac
+	printf '%s %s %s\n' "$password" "$pubkey" "$root"
+}
+
+kpanel_account_version() {
+	local canonical file username auth sudo_file effective version
+	canonical="$(mktemp /tmp/kejilion-account-version.XXXXXX)" || return 1
+	chmod 600 "$canonical" || { rm -f -- "$canonical"; return 1; }
+	for file in "$(kpanel_account_passwd_file)" "$(kpanel_account_group_file)" \
+		"$(kpanel_account_shadow_file)" "$(kpanel_account_gshadow_file)" \
+		"$(kpanel_account_sudoers_file)" "$(kpanel_account_sshd_config)" "$(kpanel_account_sshd_fragment)"; do
+		if [ -e "$file" ]; then
+			kpanel_account_file_safe "$file" 1048576 8192 || { rm -f -- "$canonical"; return 1; }
+			printf 'file=%s ' "$file" >> "$canonical"
+			sha256sum -- "$file" >> "$canonical" || { rm -f -- "$canonical"; return 1; }
+		else
+			printf 'file=%s absent\n' "$file" >> "$canonical"
+		fi
+	done
+	effective="$(kpanel_account_sshd_effective)" || { rm -f -- "$canonical"; return 1; }
+	printf 'sshd=%s\n' "$effective" >> "$canonical"
+	while IFS=: read -r username _; do
+		kpanel_account_valid_username "$username" || continue
+		auth="$(mktemp /tmp/kejilion-account-auth.XXXXXX)" || { rm -f -- "$canonical"; return 1; }
+		if kpanel_account_capture_keys "$username" "$auth"; then
+			printf 'keys=%s ' "$username" >> "$canonical"
+			sha256sum -- "$auth" | awk '{print $1}' >> "$canonical" || { rm -f -- "$canonical" "$auth"; return 1; }
+		else
+			printf 'keys=%s unreadable\n' "$username" >> "$canonical"
+		fi
+		rm -f -- "$auth"
+		sudo_file="$(kpanel_account_sudo_file "$username")"
+		if [ -e "$sudo_file" ]; then
+			kpanel_account_file_safe "$sudo_file" 4096 16 || { rm -f -- "$canonical"; return 1; }
+			printf 'sudo=%s ' "$username" >> "$canonical"
+			sha256sum -- "$sudo_file" >> "$canonical" || { rm -f -- "$canonical"; return 1; }
+		fi
+	done < "$(kpanel_account_passwd_file)"
+	version="$(sha256sum -- "$canonical" | awk '{print $1}')"
+	rm -f -- "$canonical"
+	[[ "$version" =~ ^[0-9a-f]{64}$ ]] || return 1
+	printf '%s\n' "$version"
+}
+
+kpanel_account_hex() {
+	printf '%s' "$1" | od -An -v -tx1 | tr -d ' \n'
+}
+
+kpanel_account_status() {
+	local version effective password_auth pubkey_auth root_login passwd_file login_defs uid_min=1000
+	local username _ uid gid gecos home shell groups password role kind account_record auth key key_id key_type fingerprint comment
+	local total=0 emitted=0 truncated=false key_count key_temp
+	kpanel_account_require false awk cat getent grep id mktemp od passwd runuser sha256sum ssh-keygen sshd stat tr wc || return $?
+	[ "$#" -eq 0 ] || { kpanel_account_error "status 不接受额外参数"; kpanel_account_emit failed; return 2; }
+	passwd_file="$(kpanel_account_passwd_file)"
+	kpanel_account_file_safe "$passwd_file" 1048576 8192 || { kpanel_account_emit failed; return 1; }
+	login_defs="$(kpanel_account_login_defs_file)"
+	if [ -f "$login_defs" ] && [ ! -L "$login_defs" ]; then
+		uid_min="$(awk '$1 == "UID_MIN" && $2 ~ /^[0-9]+$/ {print $2; exit}' "$login_defs")"
+		[[ "$uid_min" =~ ^[0-9]+$ ]] || uid_min=1000
+	fi
+	version="$(kpanel_account_version)" || { kpanel_account_error "无法计算账户资源版本"; kpanel_account_emit failed; return 1; }
+	effective="$(kpanel_account_sshd_effective)" || { kpanel_account_emit failed "$version"; return 1; }
+	read -r password_auth pubkey_auth root_login <<< "$effective"
+	while IFS=: read -r username _; do
+		kpanel_account_valid_username "$username" || continue
+		total=$((total + 1))
+	done < "$passwd_file"
+	[ "$total" -le 256 ] || truncated=true
+	kpanel_account_emit ok "$version"
+	printf 'KPANEL_ACCOUNT_MANAGEMENT_PASSWORD_AUTH=%s\n' "$password_auth"
+	printf 'KPANEL_ACCOUNT_MANAGEMENT_PUBKEY_AUTH=%s\n' "$pubkey_auth"
+	printf 'KPANEL_ACCOUNT_MANAGEMENT_ROOT_LOGIN=%s\n' "$root_login"
+	printf 'KPANEL_ACCOUNT_MANAGEMENT_TOTAL=%s\n' "$total"
+	printf 'KPANEL_ACCOUNT_MANAGEMENT_TRUNCATED=%s\n' "$truncated"
+	while IFS=: read -r username _ uid gid gecos home shell; do
+		[ "$emitted" -lt 256 ] || break
+		kpanel_account_valid_username "$username" || continue
+		groups="$(id -nG "$username" 2>/dev/null | tr ' ' ',')" || groups=""
+		password="$(kpanel_account_password_status "$username")" || password=unknown
+		role="$(kpanel_account_role "$username")" || role=standard
+		if [ "$username" = root ]; then kind=root; elif [ "$uid" -ge "$uid_min" ] 2>/dev/null; then kind=human; else kind=system; fi
+		key_temp="$(mktemp /tmp/kejilion-account-status-keys.XXXXXX)" || { kpanel_account_emit failed "$version"; return 1; }
+		key_count=0
+		if kpanel_account_capture_keys "$username" "$key_temp"; then
+			while IFS= read -r key || [ -n "$key" ]; do
+				[ -n "$key" ] || continue
+				kpanel_account_key_valid "$key" || continue
+				[ "$key_count" -lt 32 ] || break
+				key_id="$(kpanel_account_key_id "$key")"
+				key_type="${key%% *}"
+				fingerprint="$(printf '%s\n' "$key" | ssh-keygen -lf /dev/stdin 2>/dev/null | awk '{print $2}')"
+				comment="$(printf '%s\n' "$key" | awk '{ $1=""; $2=""; sub(/^  */, ""); print }' | tr '\t\r\n' '   ' | cut -c1-128)"
+				printf 'KPANEL_ACCOUNT_MANAGEMENT_KEY_HEX=%s\n' "$(kpanel_account_hex "$username	$key_id	$key_type	$fingerprint	$comment")"
+				key_count=$((key_count + 1))
+			done < "$key_temp"
+		fi
+		rm -f -- "$key_temp"
+		account_record="$username	$uid	$gid	$home	$shell	$kind	$password	$role	$groups	$key_count"
+		printf 'KPANEL_ACCOUNT_MANAGEMENT_ACCOUNT_HEX=%s\n' "$(kpanel_account_hex "$account_record")"
+		emitted=$((emitted + 1))
+	done < "$passwd_file"
+}
+
+kpanel_account_read_secret() {
+	local maximum="$1" frame bytes line_feeds
+	KPANEL_ACCOUNT_SECRET=""
+	frame="$(mktemp /tmp/kejilion-account-secret.XXXXXX)" || return 1
+	chmod 600 "$frame" || { rm -f -- "$frame"; return 1; }
+	head -c "$((maximum + 2))" > "$frame" 2>/dev/null || { rm -f -- "$frame"; return 1; }
+	bytes="$(wc -c < "$frame")" || { rm -f -- "$frame"; return 1; }
+	if [ "$bytes" -lt 2 ] || [ "$bytes" -gt "$((maximum + 1))" ] ||
+		! LC_ALL=C tr -d '\000' < "$frame" | cmp -s - "$frame" || LC_ALL=C grep -q $'\r' "$frame"; then
+		rm -f -- "$frame"; return 1
+	fi
+	line_feeds="$(LC_ALL=C tr -cd '\n' < "$frame" | wc -c)" || { rm -f -- "$frame"; return 1; }
+	[ "$line_feeds" -eq 1 ] && [ "$(tail -c 1 "$frame" | wc -l)" -eq 1 ] || { rm -f -- "$frame"; return 1; }
+	IFS= read -r KPANEL_ACCOUNT_SECRET < "$frame" || { rm -f -- "$frame"; return 1; }
+	rm -f -- "$frame"
+}
+
+kpanel_account_snapshot_core() {
+	local snapshot="$1" file name
+	for name in passwd group shadow gshadow; do
+		case "$name" in
+			passwd) file="$(kpanel_account_passwd_file)" ;;
+			group) file="$(kpanel_account_group_file)" ;;
+			shadow) file="$(kpanel_account_shadow_file)" ;;
+			gshadow) file="$(kpanel_account_gshadow_file)" ;;
+		esac
+		[ ! -e "$file" ] || cp -p -- "$file" "$snapshot/$name" || return 1
+	done
+}
+
+kpanel_account_restore_core() {
+	local snapshot="$1" file name
+	for name in passwd group shadow gshadow; do
+		[ -f "$snapshot/$name" ] || continue
+		case "$name" in
+			passwd) file="$(kpanel_account_passwd_file)" ;;
+			group) file="$(kpanel_account_group_file)" ;;
+			shadow) file="$(kpanel_account_shadow_file)" ;;
+			gshadow) file="$(kpanel_account_gshadow_file)" ;;
+		esac
+		cp -p -- "$snapshot/$name" "$file" || return 1
+	done
+}
+
+kpanel_account_snapshot_ssh() {
+	local snapshot="$1" main fragment
+	main="$(kpanel_account_sshd_config)"; fragment="$(kpanel_account_sshd_fragment)"
+	[ ! -e "$main" ] || cp -p -- "$main" "$snapshot/sshd_config" || return 1
+	if [ -e "$fragment" ]; then cp -p -- "$fragment" "$snapshot/sshd_fragment" || return 1; else : > "$snapshot/sshd_fragment.absent"; fi
+}
+
+kpanel_account_reload_ssh() {
+	if command -v systemctl >/dev/null 2>&1; then
+		systemctl reload sshd >/dev/null 2>&1 || systemctl reload ssh >/dev/null 2>&1
+	elif command -v service >/dev/null 2>&1; then
+		service sshd reload >/dev/null 2>&1 || service ssh reload >/dev/null 2>&1
+	else
+		return 1
+	fi
+}
+
+kpanel_account_restore_ssh() {
+	local snapshot="$1" main fragment
+	main="$(kpanel_account_sshd_config)"; fragment="$(kpanel_account_sshd_fragment)"
+	[ ! -f "$snapshot/sshd_config" ] || cp -p -- "$snapshot/sshd_config" "$main" || return 1
+	if [ -f "$snapshot/sshd_fragment.absent" ]; then rm -f -- "$fragment" || return 1; else cp -p -- "$snapshot/sshd_fragment" "$fragment" || return 1; fi
+	sshd -t -f "$main" >/dev/null 2>&1 && kpanel_account_reload_ssh
+}
+
+kpanel_account_apply_ssh_policy() {
+	local password_auth="$1" root_login="$2" main fragment main_temp fragment_temp
+	main="$(kpanel_account_sshd_config)"; fragment="$(kpanel_account_sshd_fragment)"
+	[ -f "$main" ] && [ ! -L "$main" ] && [ ! -L "$fragment" ] || return 1
+	mkdir -p -- "$(dirname -- "$fragment")" || return 1
+	fragment_temp="$(mktemp "$(dirname -- "$fragment")/.00-kejilion-account-management.conf.XXXXXX")" || return 1
+	{
+		printf '%s\n' '# Managed by kejilion.sh account-management protocol v1'
+		printf 'PubkeyAuthentication yes\n'
+		[ "$password_auth" = enabled ] && printf 'PasswordAuthentication yes\n' || printf 'PasswordAuthentication no\n'
+		printf 'KbdInteractiveAuthentication no\nChallengeResponseAuthentication no\nUsePAM yes\n'
+		case "$root_login" in enabled) printf 'PermitRootLogin yes\n' ;; key-only) printf 'PermitRootLogin prohibit-password\n' ;; disabled) printf 'PermitRootLogin no\n' ;; *) rm -f -- "$fragment_temp"; return 1 ;; esac
+	} > "$fragment_temp" || { rm -f -- "$fragment_temp"; return 1; }
+	chmod 600 "$fragment_temp" && chown 0:0 "$fragment_temp" || { rm -f -- "$fragment_temp"; return 1; }
+	main_temp="$(mktemp "$(dirname -- "$main")/.sshd_config.XXXXXX")" || { rm -f -- "$fragment_temp"; return 1; }
+	awk '
+		BEGIN { inserted=0 }
+		/^[[:space:]]*Include[[:space:]]+\/etc\/ssh\/sshd_config\.d\/\*\.conf([[:space:]]|$)/ { if (!inserted) { print "Include /etc/ssh/sshd_config.d/*.conf"; inserted=1 }; next }
+		{ if (!inserted && $0 !~ /^[[:space:]]*(#|$)/) { print "Include /etc/ssh/sshd_config.d/*.conf"; inserted=1 }; print }
+		END { if (!inserted) print "Include /etc/ssh/sshd_config.d/*.conf" }
+	' "$main" > "$main_temp" || { rm -f -- "$fragment_temp" "$main_temp"; return 1; }
+	chmod --reference="$main" "$main_temp" 2>/dev/null || chmod 600 "$main_temp"
+	chown --reference="$main" "$main_temp" 2>/dev/null || chown 0:0 "$main_temp"
+	mv -f -- "$fragment_temp" "$fragment" && mv -f -- "$main_temp" "$main" || { rm -f -- "$fragment_temp" "$main_temp"; return 1; }
+	sshd -t -f "$main" >/dev/null 2>&1 && kpanel_account_reload_ssh
+}
+
+kpanel_account_set_role() {
+	local username="$1" role="$2" admin_group sudo_file sudo_dir groups
+	[ "$username" != root ] || return 1
+	sudo_file="$(kpanel_account_sudo_file "$username")"; sudo_dir="$(dirname -- "$sudo_file")"
+	[ ! -L "$sudo_dir" ] && [ ! -L "$sudo_file" ] || return 1
+	mkdir -p -- "$sudo_dir" || return 1
+	case "$role" in
+		standard)
+			gpasswd -d "$username" sudo >/dev/null 2>&1 || true
+			gpasswd -d "$username" wheel >/dev/null 2>&1 || true
+			rm -f -- "$sudo_file" || return 1
+			;;
+		administrator)
+			admin_group="$(kpanel_account_admin_group)" || return 1
+			[ "$(kpanel_account_password_status "$username")" = enabled ] || return 2
+			usermod -a -G "$admin_group" "$username" || return 1
+			rm -f -- "$sudo_file" || return 1
+			;;
+		passwordless-admin)
+			admin_group="$(kpanel_account_admin_group)" || return 1
+			usermod -a -G "$admin_group" "$username" || return 1
+			printf '%s ALL=(ALL:ALL) NOPASSWD:ALL\n' "$username" > "$sudo_file" || return 1
+			chmod 440 "$sudo_file" && chown 0:0 "$sudo_file" || return 1
+			visudo -cf "$sudo_file" >/dev/null 2>&1 || return 1
+			;;
+		*) return 2 ;;
+	esac
+	[ "$(kpanel_account_role "$username")" = "$role" ]
+}
+
+kpanel_account_create() {
+	local username="$1" role="$2" credential="$3" secret="$4"
+	local desired sudo_file LC_ALL=C
+	kpanel_account_valid_username "$username" && [ "$username" != root ] && ! kpanel_account_exists "$username" || return 2
+	case "$role" in standard|administrator|passwordless-admin) ;; *) return 2 ;; esac
+	case "$credential" in
+		password) [ "${#secret}" -ge 8 ] && [ "${#secret}" -le 256 ] || return 2 ;;
+		key) kpanel_account_key_valid "$secret" || return 2; [ "$role" != administrator ] || return 2 ;;
+		*) return 2 ;;
+	esac
+	useradd -m -s /bin/bash "$username" || return 1
+	if [ "$credential" = password ]; then
+		if ! printf '%s:%s\n' "$username" "$secret" | chpasswd; then
+			userdel -r "$username" >/dev/null 2>&1 || true
+			return 1
+		fi
+	else
+		desired="$(mktemp /tmp/kejilion-account-create-key.XXXXXX)" || {
+			userdel -r "$username" >/dev/null 2>&1 || true
+			return 1
+		}
+		printf '%s\n' "$secret" > "$desired"
+		if ! kpanel_account_install_keys "$username" "$desired"; then
+			rm -f -- "$desired"
+			userdel -r "$username" >/dev/null 2>&1 || true
+			return 1
+		fi
+		rm -f -- "$desired"
+		if ! passwd -l "$username" >/dev/null 2>&1; then
+			userdel -r "$username" >/dev/null 2>&1 || true
+			return 1
+		fi
+	fi
+	if ! kpanel_account_set_role "$username" "$role"; then
+		sudo_file="$(kpanel_account_sudo_file "$username")"
+		rm -f -- "$sudo_file" >/dev/null 2>&1 || true
+		userdel -r "$username" >/dev/null 2>&1 || true
+		return 1
+	fi
+}
+
+kpanel_account_write_failure() {
+	local snapshot="$1" original_version="$2" message="$3" restore_core="${4:-false}" restore_ssh="${5:-false}"
+	local version recovery restore_ok=true
+	kpanel_account_error "$message"
+	[ "$restore_core" != true ] || kpanel_account_restore_core "$snapshot" || restore_ok=false
+	[ "$restore_ssh" != true ] || kpanel_account_restore_ssh "$snapshot" || restore_ok=false
+	version="$(kpanel_account_version 2>/dev/null || true)"
+	if [ "$restore_ok" = true ] && [ "$version" = "$original_version" ]; then
+		rm -rf -- "$snapshot"
+		kpanel_account_emit failed "$version"
+		return 1
+	fi
+	if recovery="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot" account-management)"; then
+		kpanel_account_emit rollback-failed "$version" "$recovery"
+	else
+		kpanel_account_emit rollback-failed "$version"
+	fi
+	return 1
+}
+
+kpanel_account_action() {
+	local action="$1" expected="$2" current snapshot final recovery username role credential marker secret="" changed=true
+	local LC_ALL=C
+	shift 2
+	kpanel_system_resource_valid_version "$expected" || { kpanel_account_emit failed; return 2; }
+	current="$(kpanel_account_version)" || { kpanel_account_emit failed; return 1; }
+	if [ "$current" != "$expected" ]; then kpanel_account_emit conflict "$current"; return 2; fi
+	snapshot="$(kpanel_system_resource_tempdir account-management)" || { kpanel_account_emit failed "$current"; return 1; }
+	case "$action" in
+		create)
+			[ "$#" -eq 4 ] && [ "$4" = --secret-stdin ] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; role="$2"; credential="$3"
+			[ "$credential" = password ] && marker=256 || marker=4096
+			kpanel_account_read_secret "$marker" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			secret="$KPANEL_ACCOUNT_SECRET"
+			kpanel_account_snapshot_core "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if ! kpanel_account_create "$username" "$role" "$credential" "$secret"; then kpanel_account_write_failure "$snapshot" "$current" "创建账户失败，已尝试恢复账户数据库" true false; return $?; fi
+			;;
+		set-password)
+			[ "$#" -eq 2 ] && [ "$2" = --secret-stdin ] && kpanel_account_exists "$1" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; kpanel_account_read_secret 256 || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			[ "${#KPANEL_ACCOUNT_SECRET}" -ge 8 ] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			kpanel_account_snapshot_core "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if ! printf '%s:%s\n' "$username" "$KPANEL_ACCOUNT_SECRET" | chpasswd; then kpanel_account_write_failure "$snapshot" "$current" "修改密码失败，已尝试恢复" true false; return $?; fi
+			;;
+		add-key)
+			[ "$#" -eq 2 ] && [ "$2" = --secret-stdin ] && kpanel_account_exists "$1" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; kpanel_account_read_secret 4096 || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }; secret="$KPANEL_ACCOUNT_SECRET"
+			kpanel_account_key_valid "$secret" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			local keys desired
+			keys="$snapshot/authorized_keys"; desired="$snapshot/authorized_keys.desired"
+			kpanel_account_capture_keys "$username" "$keys" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if grep -Fqx "$secret" "$keys"; then rm -rf -- "$snapshot"; kpanel_account_emit unchanged "$current"; return 0; fi
+			cp -- "$keys" "$desired" && printf '%s\n' "$secret" >> "$desired" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if ! kpanel_account_install_keys "$username" "$desired"; then
+				kpanel_account_install_keys "$username" "$keys" >/dev/null 2>&1 || true
+				kpanel_account_write_failure "$snapshot" "$current" "添加 SSH 公钥失败，已尝试恢复" false false
+				return $?
+			fi
+			;;
+		delete-key)
+			[ "$#" -eq 2 ] && kpanel_account_exists "$1" && [[ "$2" =~ ^[0-9a-f]{64}$ ]] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; local key_id="$2" keys="$snapshot/authorized_keys" desired="$snapshot/authorized_keys.desired" line found=false
+			kpanel_account_capture_keys "$username" "$keys" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			: > "$desired"
+			while IFS= read -r line || [ -n "$line" ]; do if [ -n "$line" ] && [ "$(kpanel_account_key_id "$line")" = "$key_id" ]; then found=true; else printf '%s\n' "$line" >> "$desired"; fi; done < "$keys"
+			if [ "$found" = false ]; then rm -rf -- "$snapshot"; kpanel_account_emit unchanged "$current"; return 0; fi
+			if ! kpanel_account_install_keys "$username" "$desired"; then
+				kpanel_account_install_keys "$username" "$keys" >/dev/null 2>&1 || true
+				kpanel_account_write_failure "$snapshot" "$current" "删除 SSH 公钥失败，已尝试恢复" false false
+				return $?
+			fi
+			;;
+		set-role)
+			[ "$#" -eq 2 ] && kpanel_account_exists "$1" && [ "$1" != root ] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; role="$2"; [ "$(kpanel_account_role "$username")" != "$role" ] || { rm -rf -- "$snapshot"; kpanel_account_emit unchanged "$current"; return 0; }
+			kpanel_account_snapshot_core "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			local sudo_file; sudo_file="$(kpanel_account_sudo_file "$username")"; if [ -e "$sudo_file" ]; then cp -p -- "$sudo_file" "$snapshot/sudo" || { rm -rf -- "$snapshot"; return 1; }; else : > "$snapshot/sudo.absent"; fi
+			if ! kpanel_account_set_role "$username" "$role"; then
+				if [ -f "$snapshot/sudo.absent" ]; then rm -f -- "$sudo_file" >/dev/null 2>&1 || true; else cp -p -- "$snapshot/sudo" "$sudo_file" >/dev/null 2>&1 || true; fi
+				kpanel_account_write_failure "$snapshot" "$current" "调整账户角色失败，已尝试恢复" true false
+				return $?
+			fi
+			;;
+		set-ssh-policy)
+			[ "$#" -eq 2 ] && [[ "$1" =~ ^(enabled|disabled)$ ]] && [[ "$2" =~ ^(enabled|key-only|disabled)$ ]] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			kpanel_account_snapshot_ssh "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if ! kpanel_account_apply_ssh_policy "$1" "$2"; then kpanel_account_write_failure "$snapshot" "$current" "SSH 登录策略应用失败，已尝试恢复" false true; return $?; fi
+			;;
+		disable-root)
+			[ "$#" -eq 0 ] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			if [ "$(kpanel_account_password_status root)" = locked ] && [ "$(kpanel_account_sshd_effective | awk '{print $3}')" = disabled ]; then rm -rf -- "$snapshot"; kpanel_account_emit unchanged "$current"; return 0; fi
+			kpanel_account_snapshot_core "$snapshot" && kpanel_account_snapshot_ssh "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if ! passwd -l root >/dev/null 2>&1 || ! kpanel_account_apply_ssh_policy "$(kpanel_account_sshd_effective | awk '{print $1 == "yes" ? "enabled" : "disabled"}')" disabled; then kpanel_account_write_failure "$snapshot" "$current" "禁用 Root 失败，已尝试恢复" true true; return $?; fi
+			;;
+		create-admin-disable-root)
+			[ "$#" -eq 3 ] && [ "$3" = --secret-stdin ] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; credential="$2"; [ "$credential" = password ] && marker=256 || marker=4096
+			kpanel_account_read_secret "$marker" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }; secret="$KPANEL_ACCOUNT_SECRET"
+			kpanel_account_snapshot_core "$snapshot" && kpanel_account_snapshot_ssh "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			role=administrator; [ "$credential" = key ] && role=passwordless-admin
+			if ! kpanel_account_create "$username" "$role" "$credential" "$secret"; then
+				kpanel_account_write_failure "$snapshot" "$current" "替代管理员创建失败，已尝试恢复" true true
+				return $?
+			fi
+			if ! passwd -l root >/dev/null 2>&1 ||
+				! kpanel_account_apply_ssh_policy "$([ "$credential" = password ] && printf enabled || printf disabled)" disabled; then
+				rm -f -- "$(kpanel_account_sudo_file "$username")" >/dev/null 2>&1 || true
+				userdel -r "$username" >/dev/null 2>&1 || true
+				kpanel_account_write_failure "$snapshot" "$current" "Root 安全迁移失败，已尝试恢复" true true
+				return $?
+			fi
+			;;
+		delete)
+			[ "$#" -eq 2 ] && kpanel_account_valid_username "$1" && [ "$1" != root ] && [[ "$2" =~ ^(true|false)$ ]] || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2; }
+			username="$1"; if ! kpanel_account_exists "$username"; then rm -rf -- "$snapshot"; kpanel_account_emit unchanged "$current"; return 0; fi
+			local sudo_file; sudo_file="$(kpanel_account_sudo_file "$username")"
+			kpanel_account_snapshot_core "$snapshot" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }
+			if [ -e "$sudo_file" ]; then cp -p -- "$sudo_file" "$snapshot/sudo" || { rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 1; }; else : > "$snapshot/sudo.absent"; fi
+			if ! { if [ "$2" = true ]; then userdel -r "$username"; else userdel "$username"; fi; }; then
+				if [ "$2" = false ]; then
+					kpanel_account_write_failure "$snapshot" "$current" "删除账户失败，已尝试恢复账户数据库" true false
+					return $?
+				fi
+				kpanel_account_restore_core "$snapshot" >/dev/null 2>&1 || true
+				final="$(kpanel_account_version 2>/dev/null || true)"
+				recovery="$(kpanel_system_resource_persist_recovery_snapshot "$snapshot" account-management 2>/dev/null || true)"
+				kpanel_account_error "删除账户及主目录失败，主目录可能已被部分删除，需要人工检查"
+				kpanel_account_emit needs-attention "$final" "$recovery"
+				return 1
+			fi
+			rm -f -- "$sudo_file" || { rm -rf -- "$snapshot"; kpanel_account_emit needs-attention "$(kpanel_account_version 2>/dev/null || true)"; return 1; }
+			;;
+		*) rm -rf -- "$snapshot"; kpanel_account_emit failed "$current"; return 2 ;;
+	esac
+	final="$(kpanel_account_version)" || { rm -rf -- "$snapshot"; kpanel_account_emit needs-attention; return 1; }
+	[ "$final" != "$current" ] || changed=false
+	rm -rf -- "$snapshot"
+	[ "$changed" = true ] && kpanel_account_emit applied "$final" || kpanel_account_emit unchanged "$final"
+}
+
+kpanel_account_run_locked() (
+	local action="$1" expected="$2" lock_file
+	shift 2
+	lock_file="$(kpanel_system_resource_prepare_lock_file)" || { kpanel_account_emit failed; return 1; }
+	exec 9<>"$lock_file" || { kpanel_account_emit failed; return 1; }
+	kpanel_system_resource_lock_path_secure "$lock_file" file 600 || { kpanel_account_emit failed; return 1; }
+	if ! flock -w 5 -x 9 >/dev/null 2>&1; then kpanel_account_emit conflict "$(kpanel_account_version 2>/dev/null || true)"; return 2; fi
+	kpanel_account_action "$action" "$expected" "$@"
+)
+
+kpanel_account_dispatch() {
+	local action="${1:-}"
+	[ "$#" -ge 1 ] || { kpanel_account_emit failed; return 2; }
+	shift
+	case "$action" in
+		status) kpanel_account_status "$@" ;;
+		create|set-password|add-key|delete-key|set-role|set-ssh-policy|disable-root|create-admin-disable-root|delete)
+			[ "$#" -ge 1 ] || { kpanel_account_emit failed; return 2; }
+			local expected="$1"; shift
+			kpanel_account_require true awk cat chpasswd cmp cut getent gpasswd grep head id mkdir mktemp od passwd runuser sed sha256sum ssh-keygen sshd stat tail tr useradd userdel usermod visudo wc || { kpanel_account_emit failed; return $?; }
+			kpanel_account_run_locked "$action" "$expected" "$@"
+			;;
+		*) kpanel_account_error "不支持的 account-management 动作"; kpanel_account_emit failed; return 2 ;;
+	esac
+}
+
+# KPanel account management protocol end
 
 
 log_menu() {
@@ -20922,25 +28552,25 @@ EOF
 					read -e -p "请输入流量重置日期（默认每月1日重置）: " cz_day
 					cz_day=${cz_day:-1}
 
-					cd ~
-					curl -Ss -o ~/Limiting_Shut_down.sh ${gh_proxy}raw.githubusercontent.com/kejilion/sh/main/Limiting_Shut_down1.sh
-					chmod +x ~/Limiting_Shut_down.sh
-					sed -i "s/110/$rx_threshold_gb/g" ~/Limiting_Shut_down.sh
-					sed -i "s/120/$tx_threshold_gb/g" ~/Limiting_Shut_down.sh
 					check_crontab_installed
-					crontab -l | grep -v '~/Limiting_Shut_down.sh' | crontab -
-					(crontab -l ; echo "* * * * * ~/Limiting_Shut_down.sh") | crontab - > /dev/null 2>&1
-					crontab -l | grep -v 'reboot' | crontab -
-					(crontab -l ; echo "0 1 $cz_day * * reboot") | crontab - > /dev/null 2>&1
-					echo "限流关机已设置"
-					send_stats "限流关机已设置"
+					local traffic_version
+					traffic_version="$(kpanel_network_operations_traffic_version)"
+					if KJ_NETWORK_OPERATIONS_NONINTERACTIVE=1 kpanel_network_operations_traffic_run_locked enable "$traffic_version" "$rx_threshold_gb" "$tx_threshold_gb" "$cz_day"; then
+						echo "限流关机已设置"
+						send_stats "限流关机已设置"
+					else
+						echo "限流关机设置失败，请根据上方错误检查配置"
+					fi
 					;;
 				  2)
 					check_crontab_installed
-					crontab -l | grep -v '~/Limiting_Shut_down.sh' | crontab -
-					crontab -l | grep -v 'reboot' | crontab -
-					rm ~/Limiting_Shut_down.sh
-					echo "已关闭限流关机功能"
+					local traffic_version
+					traffic_version="$(kpanel_network_operations_traffic_version)"
+					if KJ_NETWORK_OPERATIONS_NONINTERACTIVE=1 kpanel_network_operations_traffic_run_locked disable "$traffic_version"; then
+						echo "已关闭限流关机功能"
+					else
+						echo "关闭限流关机失败，请根据上方错误检查配置"
+					fi
 					;;
 				  *)
 					break
@@ -21129,54 +28759,20 @@ EOF
 				[Yy])
 				  clear
 				  send_stats "一条龙调优启动"
-				  echo "------------------------------------------------"
-				  switch_mirror false false
-				  linux_update
-				  echo -e "[${gl_lv}OK${gl_bai}] 1/12. 更新系统到最新"
-
-				  echo "------------------------------------------------"
-				  linux_clean
-				  echo -e "[${gl_lv}OK${gl_bai}] 2/12. 清理系统垃圾文件"
-
-				  echo "------------------------------------------------"
-				  add_swap 1024
-				  echo -e "[${gl_lv}OK${gl_bai}] 3/12. 设置虚拟内存${gl_huang}1G${gl_bai}"
-
-				  echo "------------------------------------------------"
-				  new_ssh_port 5522
-				  echo -e "[${gl_lv}OK${gl_bai}] 4/12. 设置SSH端口号为${gl_huang}5522${gl_bai}"
-				  echo "------------------------------------------------"
-				  f2b_install_sshd
+				  kpanel_system_tuning_menu_item system-update 1 "更新系统到最新" || break
+				  kpanel_system_tuning_menu_item system-cleanup 2 "清理系统垃圾文件" || break
+				  kpanel_system_tuning_menu_item swap-1g 3 "设置虚拟内存${gl_huang}1G${gl_bai}" || break
+				  kpanel_system_tuning_menu_item ssh-port-5522 4 "设置SSH端口号为${gl_huang}5522${gl_bai}" || break
+				  kpanel_system_tuning_menu_item ssh-defense 5 "启动fail2ban防御SSH暴力破解" || break
 				  cd ~
 				  f2b_status
-				  echo -e "[${gl_lv}OK${gl_bai}] 5/12. 启动fail2ban防御SSH暴力破解"
-
-				  echo "------------------------------------------------"
-				  echo -e "[${gl_lv}OK${gl_bai}] 6/12. 开放所有端口"
-
-				  echo "------------------------------------------------"
-				  bbr_on
-				  echo -e "[${gl_lv}OK${gl_bai}] 7/12. 开启${gl_huang}BBR${gl_bai}加速"
-
-				  echo "------------------------------------------------"
-				  set_timedate Asia/Shanghai
-				  echo -e "[${gl_lv}OK${gl_bai}] 8/12. 设置时区到${gl_huang}上海${gl_bai}"
-
-				  echo "------------------------------------------------"
-				  auto_optimize_dns
-				  echo -e "[${gl_lv}OK${gl_bai}] 9/12. 自动优化DNS地址${gl_huang}${gl_bai}"
-				  echo "------------------------------------------------"
-				  prefer_ipv4
-				  echo -e "[${gl_lv}OK${gl_bai}] 10/12. 设置网络为${gl_huang}ipv4优先${gl_bai}}"
-
-				  echo "------------------------------------------------"
-				  install_docker
-				  install wget sudo tar unzip socat btop nano vim
-				  echo -e "[${gl_lv}OK${gl_bai}] 11/12. 安装基础工具${gl_huang}docker wget sudo tar unzip socat btop nano vim${gl_bai}"
-				  echo "------------------------------------------------"
-
-				  curl -sS ${gh_proxy}raw.githubusercontent.com/kejilion/sh/refs/heads/main/network-optimize.sh | bash
-				  echo -e "[${gl_lv}OK${gl_bai}] 12/12. Linux系统内核参数优化"
+				  kpanel_system_tuning_menu_item firewall-open-all 6 "开放所有端口" || break
+				  kpanel_system_tuning_menu_item bbr 7 "开启${gl_huang}BBR${gl_bai}加速" || break
+				  kpanel_system_tuning_menu_item timezone-shanghai 8 "设置时区到${gl_huang}上海${gl_bai}" || break
+				  kpanel_system_tuning_menu_item dns-auto 9 "自动优化DNS地址" || break
+				  kpanel_system_tuning_menu_item ipv4-preferred 10 "设置网络为${gl_huang}IPv4优先${gl_bai}" || break
+				  kpanel_system_tuning_menu_item basic-tools 11 "安装基础工具${gl_huang}docker wget sudo tar unzip socat btop nano vim${gl_bai}" || break
+				  kpanel_system_tuning_menu_item kernel-auto 12 "Linux系统内核参数优化" || break
 				  echo -e "${gl_lv}一条龙系统调优已完成${gl_bai}"
 
 				  ;;
@@ -21652,6 +29248,9 @@ echo "------------------------"
 echo -e "${gl_lan}莱卡云 香港CN2 GIA 韩国双ISP 美国CN2 GIA 优惠活动${gl_bai}"
 echo -e "${gl_bai}网址: https://www.lcayun.com/aff/ZEXUQBIM${gl_bai}"
 echo "------------------------"
+echo -e "${gl_lan}VMRack 美国优质原生 CN2 大带宽 每月9.9刀起${gl_bai}"
+echo -e "${gl_bai}网址: https://www.vmrack.net?ref_code=5bFonow83w5${gl_bai}"
+echo "------------------------"
 echo -e "${gl_lan}RackNerd 10.99刀每年 美国 1核心 1G内存 20G硬盘 1T流量每月${gl_bai}"
 echo -e "${gl_bai}网址: https://my.racknerd.com/aff.php?aff=5501&pid=879${gl_bai}"
 echo "------------------------"
@@ -21994,7 +29593,7 @@ echo "阻止IP              k zzip 177.5.25.36 |k 阻止IP 177.5.25.36"
 echo "命令收藏夹          k fav | k 命令收藏夹"
 echo "应用市场管理        k app"
 echo "应用编号快捷管理    k app 26 | k app 1panel | k app npm"
-echo "fail2ban管理        k fail2ban | k f2b"
+echo "fail2ban管理        k fail2ban | k f2b [status|enable|disable]"
 echo "显示系统信息        k info"
 echo "ROOT密钥管理        k sshkey"
 echo "SSH公钥导入(URL)    k sshkey <url>"
@@ -22030,7 +29629,12 @@ else
 			dd_xitong
 			;;
 		bbr3|bbrv3)
-			bbrv3
+			if [ "${KJ_BBRV3_NONINTERACTIVE:-}" = "1" ]; then
+				shift
+				bbrv3 "$@"
+			else
+				bbrv3
+			fi
 			;;
 		nhyh|内核优化)
 			Kernel_optimize
@@ -22063,6 +29667,66 @@ else
 			shift
 			ldnmp_wp "$@"
 
+			;;
+		discuz)
+			shift
+			kpanel_run_web_recipe_cli 3 "$@"
+			;;
+		kodbox)
+			shift
+			kpanel_run_web_recipe_cli 4 "$@"
+			;;
+		maccms)
+			shift
+			kpanel_run_web_recipe_cli 5 "$@"
+			;;
+		dujiaoka)
+			shift
+			kpanel_run_web_recipe_cli 6 "$@"
+			;;
+		flarum)
+			shift
+			kpanel_run_web_recipe_cli 7 "$@"
+			;;
+		typecho)
+			shift
+			kpanel_run_web_recipe_cli 8 "$@"
+			;;
+		linkstack)
+			shift
+			kpanel_run_web_recipe_cli 9 "$@"
+			;;
+		ai-prompt)
+			shift
+			kpanel_run_web_recipe_cli 27 "$@"
+			;;
+		php-site)
+			shift
+			kpanel_run_web_recipe_cli 20 "$@"
+			;;
+		redirect-site)
+			shift
+			kpanel_run_web_recipe_cli 22 "$@"
+			;;
+		domain-proxy)
+			shift
+			kpanel_run_web_recipe_cli 24 "$@"
+			;;
+		bitwarden-site)
+			shift
+			kpanel_run_web_recipe_cli 25 "$@"
+			;;
+		halo-site)
+			shift
+			kpanel_run_web_recipe_cli 26 "$@"
+			;;
+		loadbalance-site)
+			shift
+			kpanel_run_web_recipe_cli 28 "$@"
+			;;
+		static-site)
+			shift
+			kpanel_run_web_recipe_cli 30 "$@"
 			;;
 		fd|rp|反代)
 			shift
@@ -22097,6 +29761,25 @@ else
 			shift
 			send_stats "快速设置时区"
 			set_timedate "$@"
+			;;
+
+		dns)
+			shift
+			kpanel_set_dns_noninteractive "$@"
+			;;
+
+		ssh-port)
+			shift
+			kpanel_ssh_port_noninteractive "$@"
+			;;
+
+		test|check|体检|测试)
+			shift
+			if [ "${KJ_TEST_NONINTERACTIVE:-}" = "1" ]; then
+				kpanel_run_test_noninteractive "$@"
+			else
+				linux_test
+			fi
 			;;
 
 
@@ -22207,8 +29890,14 @@ else
 
 		web)
 		   shift
-			if [ "$1" = "cache" ]; then
+			if [ "$1" = "env" ] || [ "$1" = "environment" ] || [ "$1" = "环境" ]; then
+				shift
+				kpanel_ldnmp_dispatch "$@"
+			elif [ "$1" = "cache" ]; then
 				web_cache
+			elif [ "$1" = "del" ] || [ "$1" = "delete" ] || [ "$1" = "删除" ]; then
+				shift
+				web_del "$@"
 			elif [ "$1" = "sec" ]; then
 				web_security
 			elif [ "$1" = "opt" ]; then
@@ -22217,6 +29906,32 @@ else
 				ldnmp_web_status
 			else
 				k_info
+			fi
+			;;
+
+		kpanel)
+			shift
+			if [ "${1:-}" = "node" ]; then
+				shift
+				kpanel_node_dispatch "$@"
+			elif [ "${1:-}" = "system-resource" ]; then
+				shift
+				kpanel_system_resource_dispatch "$@"
+			elif [ "${1:-}" = "disk-management" ]; then
+				shift
+				kpanel_disk_management_dispatch "$@"
+			elif [ "${1:-}" = "network-operations" ]; then
+				shift
+				kpanel_network_operations_dispatch "$@"
+			elif [ "${1:-}" = "account-management" ]; then
+				shift
+				kpanel_account_dispatch "$@"
+			elif [ "${1:-}" = "system-tuning" ]; then
+				shift
+				kpanel_system_tuning_dispatch "$@"
+			else
+				echo "用法: k kpanel node ... | system-resource ... | disk-management ... | network-operations ... | account-management ... | system-tuning ..." >&2
+				return 2 2>/dev/null || exit 2
 			fi
 			;;
 
@@ -22236,7 +29951,12 @@ else
 			;;
 
 		fail2ban|f2b)
-			fail2ban_panel
+			shift
+			if [ "$#" -eq 0 ]; then
+				fail2ban_panel
+			else
+				kpanel_f2b_dispatch "$@"
+			fi
 			;;
 
 
